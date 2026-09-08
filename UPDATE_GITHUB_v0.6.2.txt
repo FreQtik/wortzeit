@@ -1,0 +1,13 @@
+WortZeit GitHub Pages v0.6.2 – Update
+
+1. Repository "wortzeit" öffnen.
+2. Add file -> Upload files.
+3. app.js, styles.css, app.html, index.html und sw.js aus diesem Ordner hochladen.
+4. Commit changes, z. B. "WortZeit v0.6.2".
+5. 1–3 Minuten warten und den bestehenden Link neu öffnen.
+
+Neu:
+- Silben stehen außerhalb des Hexagons und bleiben exakt an den sechs Eckpunkten ausgerichtet.
+- Ordnerimport erkennt Trennzeichen vorsichtiger (altes WordTime mit -, Zeilen, ;, Tab, CSV).
+- Einstellungen -> Daten: Backup speichern UND Backup öffnen. Damit lassen sich Listen, Patienten, Pläne und Einstellungen manuell auf ein anderes Gerät übertragen.
+- Audioaufnahmen sind noch nicht im Backup; sie bleiben lokal im jeweiligen Browser.

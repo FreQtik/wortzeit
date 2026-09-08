@@ -347,6 +347,19 @@ function parsePlainList(text,sep){
   const lines=text.split('\n').map(x=>x.trim()).filter(Boolean);if(lines.length>1)return lines;
   return text.split(/[;,\n]+/).map(x=>x.trim()).filter(Boolean);
 }
+function detectImportSeparator(text,filename=''){
+  const clean=String(text||'').replace(/\r/g,'');
+  const lines=clean.split('\n').map(x=>x.trim()).filter(Boolean);
+  const count=ch=>clean.split(ch).length-1;
+  const tabs=count('\t'),semis=count(';'),pipes=count('|'),commas=count(','),hyphens=count('-');
+  if(tabs>=2)return '\t';
+  if(semis>=2 && semis>=commas)return ';';
+  if(pipes>=2)return '|';
+  const lineEndHyphens=lines.filter(line=>/-\s*$/.test(line)).length;
+  if(hyphens>=3 && (hyphens>=Math.max(4,lines.length) || lineEndHyphens>=Math.max(2,Math.ceil(lines.length*.25))))return '-';
+  if(String(filename).toLowerCase().endsWith('.csv') && commas>=2)return ',';
+  return '';
+}
 function decodeRtfBrowser(text){
   return String(text).replace(/\\'([0-9a-fA-F]{2})/g,(_,h)=>{try{return new TextDecoder('windows-1252').decode(Uint8Array.of(parseInt(h,16)));}catch{return ''}}).replace(/\\u(-?\d+)\??/g,(_,n)=>String.fromCharCode((+n+65536)%65536)).replace(/\\par[d]?/g,'\n').replace(/\\line/g,'\n').replace(/\\tab/g,'\t').replace(/\\[a-zA-Z]+-?\d* ?/g,'').replace(/[{}]/g,'').replace(/\\/g,'').replace(/\0/g,'').split('\n').filter(line=>!/^\s*(Times New Roman|Calibri|DejaVu Serif|\*?Riched\d+)/i.test(line)).join('\n').trim();
 }
@@ -366,7 +379,7 @@ async function importFiles(files,folder=false){
         if(obj?.format==='wortzeit-list'&&obj.list){const L={...obj.list,id:uid('list'),bundled:false};state.userLists.push(L);imported++;continue;}
       }
       const clean=lower.endsWith('.rtf')?decodeRtfBrowser(txt):txt;
-      const likelySep=clean.includes('-')?'-':'';
+      const likelySep=detectImportSeparator(clean,lower);
       const pieces=parsePlainList(clean,likelySep).filter(x=>!/^\*?Riched/i.test(x));
       if(!pieces.length)continue;
       const rel=file.webkitRelativePath||file.name;const pathParts=rel.split('/');const idx=pathParts.findIndex(x=>x.toLowerCase()==='patienten');let category='Importiert';
@@ -628,7 +641,7 @@ function fitSyllableBoard(){
   const buttons=[...wrap.querySelectorAll('.hex-syllable')];
   const bw=Math.max(74,...buttons.map(b=>Math.min(170,Math.max(74,b.getBoundingClientRect().width||0))));
   const bh=Math.max(48,...buttons.map(b=>Math.min(80,Math.max(48,b.getBoundingClientRect().height||0))));
-  const reserveX=bw*.58+8, reserveY=bh*.58+8;
+  const reserveX=bw+14, reserveY=bh+14;
   const ratio=1.154700538;
   let w=Math.min(560,Math.max(120,r.width-2*reserveX),Math.max(120,(r.height-2*reserveY)*ratio));
   if(!Number.isFinite(w))return;
@@ -690,7 +703,7 @@ function evaluateSyllables(g){
 function renderSyllables(){
   if(!game.syllables||game.syllables.materialKey!==activeMaterialKey())buildSyllableRound();const g=game.syllables;
   const controls=`<button class="soft-btn" id="syllableReset">Reset</button><button class="soft-btn" id="syllableNew">Mischen</button>`;
-  $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="game-shell">${gameHeader('Silben','Wähle Silben an den sechs Ecken und setze sie oben zusammen. Die sechs Silben stammen bewusst aus vollständigen Wörtern.',controls)}<div class="game-board"><div class="syllable-workspace" aria-label="Arbeitsbereich" id="syllableWorkspace">${g.built.length?g.built.map((sy,i)=>`<button class="syllable-piece" draggable="true" data-built="${i}" title="Antippen zum Entfernen">${esc(sy)}</button>`).join(''):'<span class="muted">Silben hier zusammensetzen</span>'}</div><div class="hex-wrap"><div class="hex-frame"><div class="hex-shape"><div class="syllable-result">${g.message?esc(g.message):'Silben'}</div></div>${g.options.map((sy,i)=>{const v=[[25,6.7],[75,6.7],[100,50],[75,93.3],[25,93.3],[0,50]][i];return `<button class="hex-syllable" style="--hx:${v[0]}%;--hy:${v[1]}%" data-syllable="${i}" draggable="true">${esc(sy)}</button>`}).join('')}</div></div></div></div>`;
+  $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="game-shell">${gameHeader('Silben','Wähle Silben an den sechs Ecken und setze sie oben zusammen. Die sechs Silben stammen bewusst aus vollständigen Wörtern.',controls)}<div class="game-board"><div class="syllable-workspace" aria-label="Arbeitsbereich" id="syllableWorkspace">${g.built.length?g.built.map((sy,i)=>`<button class="syllable-piece" draggable="true" data-built="${i}" title="Antippen zum Entfernen">${esc(sy)}</button>`).join(''):'<span class="muted">Silben hier zusammensetzen</span>'}</div><div class="hex-wrap"><div class="hex-frame"><div class="hex-shape"><div class="syllable-result">${g.message?esc(g.message):'Silben'}</div></div>${g.options.map((sy,i)=>{const v=[[25,6.7,-96,-96],[75,6.7,-4,-96],[100,50,10,-50],[75,93.3,-4,-4],[25,93.3,-96,-4],[0,50,-110,-50]][i];return `<button class="hex-syllable" style="--hx:${v[0]}%;--hy:${v[1]}%;--tx:${v[2]}%;--ty:${v[3]}%" data-syllable="${i}" draggable="true">${esc(sy)}</button>`}).join('')}</div></div></div></div>`;
   bindPlanBar();bindGameChrome();requestAnimationFrame(fitSyllableBoard);
   const addOption=i=>{const sy=g.options[i];if(!sy)return;g.built.push(sy);evaluateSyllables(g);renderSyllables();};
   $$('[data-syllable]').forEach(b=>{b.onclick=()=>addOption(+b.dataset.syllable);b.ondragstart=e=>e.dataTransfer.setData('text/plain',`option:${b.dataset.syllable}`);});
@@ -852,7 +865,7 @@ function renderSettings(){
     <div class="card"><button class="icon-btn card-help" data-settings-help="design" aria-label="Hilfe zu Design">?</button><h2>Design</h2><p>Wähle die Darstellung, die sich am angenehmsten lesen lässt. Die Änderung ist sofort sichtbar.</p><div class="theme-picks">${[['calm','Ruhig'],['light','Hell'],['dark','Dunkel'],['contrast','Kontrast'],['warm','Warm']].map(([k,v])=>`<button class="theme-pick ${s.theme===k?'active':''}" data-theme-pick="${k}">${v}</button>`).join('')}</div></div>
     <div class="card"><button class="icon-btn card-help" data-settings-help="session" aria-label="Hilfe zu Sitzungsstandard">?</button><h2>Sitzungsstandard</h2><p>Diese Werte werden vorgeschlagen, wenn eine neue Wort-Sitzung beginnt.</p><div class="field"><label>Wörter gleichzeitig</label><select id="setAmount">${[1,2,3,4,5,6].map(n=>`<option>${n}</option>`).join('')}</select></div><label class="toggle"><input id="setEndless" type="checkbox"> Nach dem letzten Wort wieder von vorne beginnen</label></div>
     <div class="card"><button class="icon-btn card-help" data-settings-help="stories" aria-label="Hilfe zu Bildergeschichten">?</button><h2>Bildergeschichten</h2><p>Die Bilddateien hatten keine eindeutigen Dateinamen. Hier kannst du die richtigen Titel einmal zuordnen.</p><div class="toolbar"><button class="secondary-btn" id="storyTitles">Titel zuordnen</button></div></div>
-    <div class="card"><button class="icon-btn card-help" data-settings-help="data" aria-label="Hilfe zu Daten">?</button><h2>Daten</h2><p>Erstelle eine Sicherung deiner lokal gespeicherten Listen, Patienten, Pläne und Einstellungen.</p><div class="toolbar"><button class="secondary-btn" id="showIntroSettings">Kurze Einführung</button><button class="secondary-btn" id="backupState">Lokales Backup</button><button class="danger-btn" id="resetState">Testdaten zurücksetzen</button></div></div>
+    <div class="card"><button class="icon-btn card-help" data-settings-help="data" aria-label="Hilfe zu Daten">?</button><h2>Daten</h2><p>Sichere deine lokal gespeicherten Listen, Patienten, Pläne und Einstellungen oder übertrage sie auf ein anderes Gerät.</p><div class="toolbar"><button class="secondary-btn" id="showIntroSettings">Kurze Einführung</button><button class="secondary-btn" id="backupState">Backup speichern</button><button class="secondary-btn" id="restoreState">Backup öffnen</button><button class="danger-btn" id="resetState">Testdaten zurücksetzen</button></div><input id="restoreStatePicker" type="file" accept=".json" hidden></div>
   </div>`;
   $('#setLang').value=s.lang;$('#setAmount').value=s.itemsPerScreen;$('#setEndless').checked=s.endless;
   $('#setLang').onchange=e=>{s.lang=e.target.value;saveState();applyI18n();renderSettings();};
@@ -863,6 +876,23 @@ function renderSettings(){
   $('#storyTitles').onclick=openStoryTitleEditor;
   $('#showIntroSettings')?.addEventListener('click',showWelcome);
   $('#backupState').onclick=()=>downloadBlob(`WortZeit_Backup_${new Date().toISOString().slice(0,10)}.json`,new Blob([JSON.stringify({format:'wortzeit-local-backup',version:1,state},null,2)],{type:'application/json'}));
+  $('#restoreState').onclick=()=>$('#restoreStatePicker').click();
+  $('#restoreStatePicker').onchange=async e=>{
+    const file=e.target.files?.[0];if(!file)return;
+    try{
+      const obj=JSON.parse((await readFileText(file)).replace(/^\uFEFF/,''));
+      if(obj?.format!=='wortzeit-local-backup'||!obj.state)throw new Error('Kein WortZeit-Backup');
+      const parsed=obj.state;
+      state={...structuredClone(DEFAULT_STATE),...parsed,
+        settings:{...DEFAULT_STATE.settings,...(parsed.settings||{})},stats:{...DEFAULT_STATE.stats,...(parsed.stats||{})},
+        userLists:Array.isArray(parsed.userLists)?parsed.userLists:[],patients:Array.isArray(parsed.patients)?parsed.patients:[],plans:Array.isArray(parsed.plans)?parsed.plans:[],
+        storyTitleOverrides:parsed.storyTitleOverrides&&typeof parsed.storyTitleOverrides==='object'?parsed.storyTitleOverrides:{},
+        activeListIds:Array.isArray(parsed.activeListIds)&&parsed.activeListIds.length?parsed.activeListIds:[parsed.currentListId||defaultList.id],
+        recentListIds:Array.isArray(parsed.recentListIds)?parsed.recentListIds:[]};
+      saveState();session=null;game={};applyTheme();updateHeader();renderSettings();toast('Backup geladen');
+    }catch(err){console.warn(err);toast('Backup konnte nicht gelesen werden');}
+    finally{e.target.value='';}
+  };
   $('#resetState').onclick=()=>{if(confirm('Eigene Listen, Patienten und Therapiepläne dieser Testversion wirklich zurücksetzen?')){localStorage.removeItem(STORAGE_KEY);state=structuredClone(DEFAULT_STATE);session=null;game={};saveState();applyTheme();renderSettings();toast('Zurückgesetzt');}};
   bindPlanBar();
 }
@@ -872,7 +902,7 @@ function settingsHelp(which){
     design:['Design','Hier änderst du nur das Aussehen der App. Tippe auf ein Design und du siehst die Änderung sofort. Wähle einfach die Variante, die für dich und den Patienten am angenehmsten zu lesen ist.'],
     session:['Sitzungsstandard','Hier legst du fest, mit wie vielen Wörtern eine neue Wort-Sitzung normalerweise startet. „Wieder von vorne“ bedeutet: Nach dem letzten Wort beginnt die Liste erneut. Du kannst diese Werte später in jeder Sitzung noch ändern.'],
     stories:['Bildergeschichten','Die gelieferten Bilder heißen nur nach Aufnahmedatum. Deshalb zeigt die App zunächst neutrale Namen wie „Bildergeschichte 01“. Mit „Titel zuordnen“ kannst du anhand der Bildvorschau den passenden Titel auswählen. Die Zuordnung wird gespeichert.'],
-    data:['Daten','„Lokales Backup“ speichert deine App-Einstellungen, eigenen Listen, Patienten und Therapiepläne in einer Datei. „Testdaten zurücksetzen“ entfernt diese selbst angelegten Daten aus diesem Browser. Die mitgelieferten Übungslisten bleiben erhalten.']
+    data:['Daten','„Backup speichern“ sichert Einstellungen, eigene Listen, Patienten und Therapiepläne in einer Datei. Mit „Backup öffnen“ kannst du diese Sicherung auf demselben oder einem anderen Gerät wieder laden. Aufnahmen bleiben derzeit separat im jeweiligen Browser und sind nicht Teil dieses Backups. „Testdaten zurücksetzen“ entfernt die selbst angelegten Daten aus diesem Browser.']
   };
   const [title,body]=info[which]||['Einstellungen','Hier kannst du die App an deine Arbeitsweise anpassen.'];
   helpModal(title,`<p>${body}</p>`);
@@ -908,7 +938,7 @@ function contextualHelp(){
   const map={
     home:['Start','Wähle eine Liste oder starte direkt mit den Standardwörtern. Danach kannst du eine Wort-Sitzung, ein Spiel oder einen vorbereiteten Therapieplan öffnen.'],
     session:['Sitzung','Das große Wort ist die Übung. Tippe auf die Wortfläche oder auf → für das nächste Wort. Mit ← gehst du zurück. „↺ Anfang“ springt zum Beginn dieser Runde. Mit ▶ läuft die Liste automatisch. Die Helligkeit oben verändert den Hintergrund sofort.'],
-    lists:['Listen','Hier wählst du das Material für die nächsten Übungen. Ein Klick auf einen Listennamen nimmt nur diese Liste. Mit dem kleinen + oder ✓ rechts kannst du mehrere Listen gleichzeitig für eine Mischübung aktivieren. Oben siehst du außerdem die zuletzt benutzten Listen. Eigene Listen können einen separaten Silbentrenner enthalten, zum Beispiel „Ba-na-ne“.'],
+    lists:['Listen','Hier wählst du das Material für die nächsten Übungen. „Ordner importieren“ kann viele RTF-, TXT-, CSV- und WortZeit-JSON-Dateien in einem Schritt einlesen und übernimmt die Ordnerstruktur als Gruppen. Das alte WordTime-Material mit Bindestrich-Trennung wird automatisch erkannt; ebenso übliche Zeilen-, Semikolon-, Tab- und CSV-Trennung. Ein Klick auf einen Listennamen nimmt nur diese Liste. Mit + oder ✓ rechts kannst du mehrere Listen für eine Mischübung aktivieren. Für neue Listen kannst du Trennzeichen und optional Silbentrenner ausdrücklich festlegen.'],
     games:['Spiele','Wähle einfach ein Spiel. Die meisten Spiele nehmen automatisch die gerade ausgewählte Wortliste. Im Spiel selbst bleibt nur das Nötige sichtbar. ? erklärt das Spiel, × oder die Escape-Taste beendet es.'],
     patients:['Patienten','Hier kannst du einen einfachen Anzeigenamen anlegen und passende Listen zuordnen. So findest du das vorbereitete Material später schneller wieder.'],
     plans:['Therapiepläne','Ein Therapieplan verbindet mehrere Übungen in einer festen Reihenfolge. Du kannst ihn selbst starten oder als .speechpack-Datei weitergeben. Mit den Pfeilen änderst du die Reihenfolge der Schritte.'],
