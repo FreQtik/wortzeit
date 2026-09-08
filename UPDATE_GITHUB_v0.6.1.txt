@@ -1,0 +1,24 @@
+WORTZEIT – GITHUB UPDATE v0.6.1
+================================
+
+Du musst KEIN neues Repository anlegen und die Pages-Einstellungen NICHT erneut ändern.
+
+1. Diese ZIP-Datei entpacken.
+2. Im bestehenden GitHub-Repository „wortzeit“ auf Add file -> Upload files gehen.
+3. ALLE Dateien aus diesem entpackten Ordner in das Upload-Feld ziehen.
+4. GitHub zeigt die vorhandenen Dateien als geändert/ersetzt an.
+5. Unten Commit changes wählen (z. B. Nachricht: „WortZeit v0.6.1 layout fix“).
+6. Danach ca. 1–3 Minuten warten. Unter Actions bzw. Settings -> Pages kann der Deploy-Status geprüft werden.
+7. Patienten-Link und Behandler-Link bleiben EXAKT gleich.
+8. Einmal die Seite neu laden. Falls ein bereits offener Tab noch die vorige Version zeigt: Tab schließen und neu öffnen. Ein harter Reload sollte normalerweise nicht mehr nötig sein, da v0.6.1 eine neue Cache-Version benutzt.
+
+WICHTIG:
+- Nicht die ZIP selbst hochladen, sondern die Dateien DARIN.
+- Keine .speechpack-Dateien echter Patienten in das öffentliche Repository legen.
+- Die Pages-Einstellung main / (root) bleibt unverändert.
+
+SCHNELLTEST NACH DEM UPDATE
+1. Behandler -> Spiele -> Silben: Hexagon muss horizontal und vertikal zentriert sein; alle 6 Silben auf den Ecken.
+2. Behandler -> Wortnetz: Zielwort exakt in der Mitte, 6 Felder symmetrisch und vollständig sichtbar.
+3. Patienten-Link -> Demo_Therapieplan.speechpack: Wortanzeige starten. Oberer Planbalken UND unterer Sitzungsbereich müssen gemeinsam vollständig in einen Bildschirm passen. Kein abgeschnittener grauer/unterer Bereich.
+4. Browserfenster einmal deutlich kleiner und wieder größer ziehen. Die drei Ansichten müssen sich neu einpassen.

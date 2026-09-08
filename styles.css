@@ -569,3 +569,153 @@ body.game-story .story-tile.drag-over{outline:none!important;box-shadow:inset 0 
   body.game-mode .game-shell{gap:5px!important}
   body.game-mode .game-board{padding:8px!important}
 }
+
+
+/* v0.6.1 responsive geometry hardening ---------------------------------------
+   This pass removes the remaining viewport-dependent offsets. Games use the
+   actual available canvas, not page/viewport guesses. */
+:root{--wz-topbar-h:76px}
+@media(max-width:900px){:root{--wz-topbar-h:68px}}
+@media(orientation:landscape) and (max-height:600px){:root{--wz-topbar-h:60px}}
+
+/* A therapy-plan bar and the activity beneath it must share ONE viewport.
+   Never give the activity 100% height and then add the plan bar on top. */
+body.session-mode .view{
+  height:calc(100dvh - var(--wz-topbar-h))!important;
+  min-height:0!important;
+  display:flex!important;
+  flex-direction:column!important;
+  overflow:hidden!important;
+}
+body.session-mode .plan-runbar{flex:0 0 auto!important;position:relative!important;top:auto!important;margin:0 0 var(--wz-game-gap)!important}
+body.session-mode .session-stage{
+  flex:1 1 auto!important;
+  height:auto!important;
+  min-height:0!important;
+  width:100%!important;
+  grid-template-rows:auto minmax(0,1fr) auto!important;
+}
+body.session-mode .session-word-wrap{min-width:0;min-height:0;overflow:hidden;padding:clamp(12px,3vw,34px)!important}
+body.session-mode .session-word{max-width:100%!important;max-height:100%!important;overflow-wrap:anywhere;word-break:normal;hyphens:auto}
+body.session-mode .session-top,body.session-mode .session-bottom{min-width:0;flex-wrap:wrap}
+body.patient-mode.session-mode .session-top #sessionOptions{display:none!important}
+
+/* Same rule for games started from a therapy plan. */
+body.game-mode .view{display:flex!important;flex-direction:column!important}
+body.game-mode .plan-runbar{flex:0 0 auto!important}
+body.game-mode .game-shell{flex:1 1 auto!important;height:auto!important;width:100%!important;min-height:0!important}
+body.game-mode .game-board{overflow:hidden!important}
+
+/* SILBEN: the wrapping canvas is the reference. JS fits the hex frame inside
+   it while reserving room for buttons centered exactly on the six vertices. */
+body.game-syllables .game-board{place-items:stretch!important}
+body.game-syllables .hex-wrap{
+  position:relative!important;
+  width:100%!important;
+  height:100%!important;
+  min-width:0!important;
+  min-height:0!important;
+  max-width:none!important;
+  max-height:none!important;
+  padding:0!important;
+  margin:0!important;
+  display:block!important;
+  overflow:hidden!important;
+  transform:none!important;
+}
+body.game-syllables .hex-frame{
+  position:absolute!important;
+  left:50%!important;
+  top:50%!important;
+  transform:translate(-50%,-50%)!important;
+  width:420px;
+  height:364px;
+  max-width:none!important;
+  max-height:none!important;
+  aspect-ratio:auto!important;
+  margin:0!important;
+  overflow:visible!important;
+}
+body.game-syllables .hex-frame .hex-shape{inset:0!important;width:100%!important;height:100%!important}
+body.game-syllables .hex-frame .hex-syllable{
+  min-width:clamp(72px,8.5vw,120px)!important;
+  min-height:clamp(46px,7vh,70px)!important;
+  max-width:clamp(96px,13vw,170px)!important;
+  padding:8px 12px!important;
+  line-height:1.05!important;
+  white-space:normal!important;
+}
+
+/* WORTNETZ: no absolute viewport percentages. A symmetric 3x3 grid keeps the
+   target in the real center and all six prompts inside the canvas. */
+body.game-semantic .semantic-board{
+  display:grid!important;
+  place-items:center!important;
+  min-width:0!important;
+  min-height:0!important;
+  overflow:hidden!important;
+}
+body.game-semantic .semantic-network{
+  position:relative!important;
+  width:min(1120px,100%)!important;
+  height:min(680px,100%)!important;
+  min-width:0!important;
+  min-height:0!important;
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) minmax(0,1.22fr) minmax(0,1fr)!important;
+  grid-template-rows:minmax(0,1fr) minmax(0,1.18fr) minmax(0,1fr)!important;
+  gap:clamp(8px,1.4vw,20px)!important;
+  align-items:center!important;
+  justify-items:center!important;
+  padding:clamp(4px,.8vw,10px)!important;
+}
+body.game-semantic .semantic-target,
+body.game-semantic .semantic-prompt{
+  position:static!important;
+  left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;
+  transform:none!important;
+  margin:0!important;
+}
+body.game-semantic .semantic-target{
+  grid-column:2!important;grid-row:2!important;
+  width:min(100%,360px)!important;
+  min-width:0!important;
+  min-height:clamp(94px,19vh,150px)!important;
+  max-height:100%!important;
+  padding:clamp(12px,2vw,24px)!important;
+  font-size:clamp(24px,3.2vw,48px)!important;
+  border-radius:clamp(20px,2.4vw,30px)!important;
+}
+body.game-semantic .semantic-prompt{
+  width:min(100%,270px)!important;
+  min-width:0!important;
+  min-height:clamp(62px,12vh,96px)!important;
+  max-height:100%!important;
+  padding:clamp(8px,1.2vw,14px)!important;
+}
+body.game-semantic .semantic-prompt:nth-of-type(1){grid-column:2!important;grid-row:1!important}
+body.game-semantic .semantic-prompt:nth-of-type(2){grid-column:3!important;grid-row:2!important}
+body.game-semantic .semantic-prompt:nth-of-type(3){grid-column:3!important;grid-row:3!important}
+body.game-semantic .semantic-prompt:nth-of-type(4){grid-column:2!important;grid-row:3!important}
+body.game-semantic .semantic-prompt:nth-of-type(5){grid-column:1!important;grid-row:3!important}
+body.game-semantic .semantic-prompt:nth-of-type(6){grid-column:1!important;grid-row:2!important}
+
+/* Compact tablets / portrait phones: preserve the centered hierarchy instead
+   of pushing controls beyond an edge. */
+@media(max-width:700px){
+  body.game-syllables .game-board{gap:10px!important}
+  body.game-syllables .syllable-workspace{width:100%!important;min-height:60px!important}
+  body.game-semantic .semantic-network{gap:6px!important;padding:2px!important}
+  body.game-semantic .semantic-target{font-size:clamp(20px,5.3vw,34px)!important;min-height:80px!important}
+  body.game-semantic .semantic-prompt{min-height:58px!important;padding:6px!important}
+  body.game-semantic .semantic-prompt strong{font-size:clamp(12px,3.4vw,17px)!important}
+  body.game-semantic .semantic-prompt span{display:none!important}
+}
+@media(orientation:landscape) and (max-height:520px){
+  body.game-semantic .semantic-network{height:100%!important;gap:5px!important}
+  body.game-semantic .semantic-target{min-height:68px!important;font-size:clamp(18px,5vh,30px)!important;padding:8px!important}
+  body.game-semantic .semantic-prompt{min-height:44px!important;padding:4px 6px!important}
+  body.game-semantic .semantic-prompt strong{font-size:clamp(11px,3vh,16px)!important}
+  body.session-mode .session-top,body.session-mode .session-bottom{padding:6px 8px!important}
+  body.session-mode .session-word-wrap{padding:8px!important}
+}

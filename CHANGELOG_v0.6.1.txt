@@ -1,0 +1,11 @@
+WortZeit GitHub Pages v0.6.1
+=============================
+
+Layout-Härtung für Online-/Geräteansichten:
+- Silben-Hexagon wird anhand der tatsächlich verfügbaren Spielfläche zentriert und eingepasst.
+- Die sechs Silben bleiben exakt auf den sechs Hexagon-Eckpunkten und bekommen reservierten Sicherheitsraum.
+- Wortnetz nutzt keine viewport-abhängigen absoluten Offsets mehr, sondern eine symmetrische 3x3-Komposition mit Zielwort im Zentrum.
+- Therapieplan + Wortanzeige teilen sich jetzt dieselbe verfügbare Bildschirmhöhe. Dadurch wird im Patientenplayer der untere Sitzungsbereich nicht mehr abgeschnitten.
+- Sitzungswörter werden nach dem tatsächlichen verfügbaren Textbereich eingepasst und bei Resize erneut berechnet.
+- Spiele innerhalb eines Therapieplans verwenden ebenfalls nur den verbleibenden Viewport statt zusätzlich 100% Höhe zu beanspruchen.
+- Cache-Version auf v0.6.1 angehoben.

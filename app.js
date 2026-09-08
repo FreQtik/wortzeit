@@ -246,7 +246,7 @@ function renderSession(){
   $('#undoBtn').onclick=sessionPrev; $('#redoBtn').onclick=sessionRedo; $('#playBtn').onclick=toggleAutoplay;$('#sessionStart').onclick=sessionToStart;
   $('#quickBrightness').oninput=e=>applySessionBrightness(e.target.value,true);
   $('#sessionOptions').onclick=openSessionOptions; $('#audioBtn').onclick=openAudioDialog;
-  bindPlanBar(); maybeAutoplayRecording();
+  bindPlanBar(); requestAnimationFrame(fitSessionText); maybeAutoplayRecording();
 }
 function openSessionOptions(){
   openModal(`<div class="modal-head"><div><div class="eyebrow">Sitzung</div><h2>Anzeige einstellen</h2></div><button class="icon-btn" data-close-modal>×</button></div>
@@ -619,6 +619,35 @@ function renderWheel(){
   $$('[data-selected-slot]').forEach(b=>b.onclick=()=>{const i=+b.dataset.selectedSlot;if(g.selected[i]){g.selected.splice(i,1);updateWheelSelected();}});
 }
 
+
+function fitSyllableBoard(){
+  const wrap=document.querySelector('.hex-wrap'), frame=document.querySelector('.hex-frame');
+  if(!wrap||!frame)return;
+  const r=wrap.getBoundingClientRect();
+  if(r.width<40||r.height<40)return;
+  const buttons=[...wrap.querySelectorAll('.hex-syllable')];
+  const bw=Math.max(74,...buttons.map(b=>Math.min(170,Math.max(74,b.getBoundingClientRect().width||0))));
+  const bh=Math.max(48,...buttons.map(b=>Math.min(80,Math.max(48,b.getBoundingClientRect().height||0))));
+  const reserveX=bw*.58+8, reserveY=bh*.58+8;
+  const ratio=1.154700538;
+  let w=Math.min(560,Math.max(120,r.width-2*reserveX),Math.max(120,(r.height-2*reserveY)*ratio));
+  if(!Number.isFinite(w))return;
+  w=Math.max(150,w);
+  const h=w/ratio;
+  frame.style.width=`${w}px`;frame.style.height=`${h}px`;
+}
+function fitSessionText(){
+  const wrap=document.querySelector('.session-word-wrap'), el=document.querySelector('.session-word');
+  if(!wrap||!el)return;
+  const wr=wrap.getBoundingClientRect();if(wr.width<20||wr.height<20)return;
+  const multi=el.classList.contains('multi');
+  let size=Math.min(multi?96:140, Math.max(28, wr.height*(multi ? .30 : .42)), Math.max(28,wr.width*(multi ? .09 : .115)));
+  el.style.fontSize=`${size}px`;
+  el.style.lineHeight='1.08';
+  const fits=()=>el.scrollHeight<=wrap.clientHeight-8 && el.scrollWidth<=wrap.clientWidth-8;
+  while(size>24&&!fits()){size-=2;el.style.fontSize=`${size}px`;}
+}
+
 // ---------- Syllable hex ----------
 function normalizeWordForSyllables(x){return String(x||'').toLocaleLowerCase('de').replace(/[^a-zäöüß]/g,'');}
 function syllableWordCandidates(){
@@ -662,7 +691,7 @@ function renderSyllables(){
   if(!game.syllables||game.syllables.materialKey!==activeMaterialKey())buildSyllableRound();const g=game.syllables;
   const controls=`<button class="soft-btn" id="syllableReset">Reset</button><button class="soft-btn" id="syllableNew">Mischen</button>`;
   $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="game-shell">${gameHeader('Silben','Wähle Silben an den sechs Ecken und setze sie oben zusammen. Die sechs Silben stammen bewusst aus vollständigen Wörtern.',controls)}<div class="game-board"><div class="syllable-workspace" aria-label="Arbeitsbereich" id="syllableWorkspace">${g.built.length?g.built.map((sy,i)=>`<button class="syllable-piece" draggable="true" data-built="${i}" title="Antippen zum Entfernen">${esc(sy)}</button>`).join(''):'<span class="muted">Silben hier zusammensetzen</span>'}</div><div class="hex-wrap"><div class="hex-frame"><div class="hex-shape"><div class="syllable-result">${g.message?esc(g.message):'Silben'}</div></div>${g.options.map((sy,i)=>{const v=[[25,6.7],[75,6.7],[100,50],[75,93.3],[25,93.3],[0,50]][i];return `<button class="hex-syllable" style="--hx:${v[0]}%;--hy:${v[1]}%" data-syllable="${i}" draggable="true">${esc(sy)}</button>`}).join('')}</div></div></div></div>`;
-  bindPlanBar();bindGameChrome();
+  bindPlanBar();bindGameChrome();requestAnimationFrame(fitSyllableBoard);
   const addOption=i=>{const sy=g.options[i];if(!sy)return;g.built.push(sy);evaluateSyllables(g);renderSyllables();};
   $$('[data-syllable]').forEach(b=>{b.onclick=()=>addOption(+b.dataset.syllable);b.ondragstart=e=>e.dataTransfer.setData('text/plain',`option:${b.dataset.syllable}`);});
   const ws=$('#syllableWorkspace');ws.ondragover=e=>e.preventDefault();ws.ondrop=e=>{e.preventDefault();const raw=e.dataTransfer.getData('text/plain');if(raw.startsWith('option:'))addOption(+raw.split(':')[1]);};
@@ -898,7 +927,7 @@ function contextualHelp(){
 }
 
 // ---------- Service worker ----------
-if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.6.0',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
+if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.6.1',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
 
 // ---------- Global events/init ----------
 $('#menuButton').onclick=openDrawer;$('#closeDrawer').onclick=closeDrawer;$('#scrim').onclick=closeDrawer;$('#helpButton').onclick=contextualHelp;$('#patientModeButton').onclick=enterPatientMode;$('.brand').onclick=()=>{if(!patientMode)nav('home');};$('.brand').onkeydown=e=>{if(!patientMode&&(e.key==='Enter'||e.key===' '))nav('home');};$$('.drawer-nav [data-route]').forEach(b=>b.onclick=()=>nav(b.dataset.route));$('#currentListButton').onclick=()=>nav('lists');
@@ -909,4 +938,4 @@ if(patientMode)document.body.classList.add('patient-mode');
 updateHeader();render();
 })();
 
-window.addEventListener('resize',()=>{if(route==='memory'&&game.memoryStage==='play')fitMemoryBoard();if(route==='story')fitStoryBoard();if(route==='wheel')fitWheelGeometry();});
+window.addEventListener('resize',()=>{if(route==='memory'&&game.memoryStage==='play')fitMemoryBoard();if(route==='story')fitStoryBoard();if(route==='wheel')fitWheelGeometry();if(route==='syllables')fitSyllableBoard();if(route==='session')fitSessionText();});
