@@ -45,6 +45,8 @@ let patientMode = new URLSearchParams(location.search).get('mode') === 'patient'
 let importedPatientPackage = null;
 let activePlanRun = null;
 let toastTimer = null;
+let navDepth = 0;
+let navMaxDepth = 0;
 
 function loadState(){
   try{
@@ -90,7 +92,32 @@ async function releaseWakeLock(){try{if(wakeLock){await wakeLock.release();wakeL
 
 function openDrawer(){ $('#drawer').classList.add('open'); $('#drawer').setAttribute('aria-hidden','false'); $('#scrim').hidden=false; }
 function closeDrawer(){ $('#drawer').classList.remove('open'); $('#drawer').setAttribute('aria-hidden','true'); $('#scrim').hidden=true; }
-function nav(to, opts={}){ route=to; closeDrawer(); if(['session',...GAME_ROUTES].includes(to)) requestWakeLock(); else releaseWakeLock(); render(opts); }
+function syncNavigationButtons(){
+  const backDisabled=navDepth<=0, forwardDisabled=navDepth>=navMaxDepth;
+  const b=$('#navBackButton'),f=$('#navForwardButton');if(b)b.disabled=backDisabled;if(f)f.disabled=forwardDisabled;
+  $$('.game-back-btn').forEach(x=>x.disabled=backDisabled && !(route==='memory'&&game.memoryStage==='play') && !(route==='choiceStory'&&game.choiceStory?.reading));
+  $$('.game-forward-btn').forEach(x=>x.disabled=forwardDisabled);
+}
+function nav(to, opts={}){
+  const changed=to!==route;
+  if(!opts.fromHistory&&changed){
+    navDepth+=1;navMaxDepth=navDepth;
+    try{history.pushState({wz:true,route:to,depth:navDepth},'',location.href);}catch{}
+  }
+  route=to;closeDrawer();if(['session',...GAME_ROUTES].includes(to))requestWakeLock();else releaseWakeLock();render(opts);syncNavigationButtons();
+}
+function navigationBack(){
+  if($('#modalRoot').innerHTML){closeModal();return;}
+  if($('#drawer').classList.contains('open')){closeDrawer();return;}
+  if(navDepth>0){history.back();return;}
+  if(GAME_ROUTES.includes(route)&&route!=='games')nav('games');
+}
+function navigationForward(){if(navDepth<navMaxDepth)history.forward();}
+function handleHistoryPop(e){
+  const st=e.state;if(!st?.wz)return;
+  route=st.route||'home';navDepth=Number.isFinite(st.depth)?st.depth:0;closeDrawer();closeModal();
+  if(['session',...GAME_ROUTES].includes(route))requestWakeLock();else releaseWakeLock();render({fromHistory:true});syncNavigationButtons();
+}
 function applyRouteMode(){
   const isGame=GAME_ROUTES.includes(route);
   document.body.classList.toggle('game-mode',isGame);
@@ -105,9 +132,9 @@ function exitGame(){
   nav('games');
 }
 function gameBack(){
-  if(route==='memory'&&game.memoryStage==='play'){game.memoryStage='setup';game.memory=null;renderMemory();return;}
-  if(route==='choiceStory'&&game.choiceStory?.reading){game.choiceStory.reading=false;renderChoiceStory();return;}
-  exitGame();
+  if(route==='memory'&&game.memoryStage==='play'){game.memoryStage='setup';game.memory=null;renderMemory();syncNavigationButtons();return;}
+  if(route==='choiceStory'&&game.choiceStory?.reading){game.choiceStory.reading=false;renderChoiceStory();syncNavigationButtons();return;}
+  navigationBack();
 }
 function inferListGameTags(L){
   if(!L||L.id===defaultList.id)return [];
@@ -131,8 +158,8 @@ function gameMaterialButton(){
   const label=hasExplicitMaterial()?activeMaterialTitle():(game.allowDefaultForRoute===route?'Fallback aktiv':'Liste wählen');
   return `<button class="soft-btn game-material-btn" id="gameMaterialButton" title="Liste für dieses Spiel ändern"><span class="game-material-static">Liste</span><span class="game-material-name"> · ${esc(label)}</span> ▾</button>`;
 }
-function gameHeader(title,subtitle,controls='',centerControl=''){return `<div class="game-head"><div class="game-head-left"><button class="icon-btn game-back-btn" aria-label="Zurück" title="Zurück">←</button><div class="game-title"><h1>${esc(title)}</h1><p>${subtitle}</p></div></div>${centerControl?`<div class="game-center-control">${centerControl}</div>`:''}<div class="game-controls">${gameMaterialButton()}${controls}<button class="icon-btn game-help-btn" aria-label="Hilfe" title="Hilfe">?</button><button class="icon-btn game-exit-btn" aria-label="Spiel verlassen" title="Zur Spieleauswahl">×</button></div></div>`;}
-function bindGameChrome(){ $('.game-back-btn')?.addEventListener('click',gameBack);$('.game-help-btn')?.addEventListener('click',contextualHelp); $('.game-exit-btn')?.addEventListener('click',exitGame); $('#gameMaterialButton')?.addEventListener('click',()=>openGameMaterialPicker(route)); }
+function gameHeader(title,subtitle,controls='',centerControl=''){return `<div class="game-head"><div class="game-head-left"><div class="game-history-controls"><button class="icon-btn game-back-btn" aria-label="Zurück" title="Zurück">←</button><button class="icon-btn game-forward-btn" aria-label="Vor" title="Vor">→</button></div><div class="game-title"><h1>${esc(title)}</h1><p>${subtitle}</p></div></div>${centerControl?`<div class="game-center-control">${centerControl}</div>`:''}<div class="game-controls">${gameMaterialButton()}${controls}<button class="icon-btn game-help-btn" aria-label="Hilfe" title="Hilfe">?</button><button class="icon-btn game-exit-btn" aria-label="Spiel verlassen" title="Zur Spieleauswahl">×</button></div></div>`;}
+function bindGameChrome(){ $('.game-back-btn')?.addEventListener('click',gameBack);$('.game-forward-btn')?.addEventListener('click',navigationForward);$('.game-help-btn')?.addEventListener('click',contextualHelp); $('.game-exit-btn')?.addEventListener('click',exitGame); $('#gameMaterialButton')?.addEventListener('click',()=>openGameMaterialPicker(route));syncNavigationButtons(); }
 function applyGameMaterialSelection(ids,gameRoute){
   const valid=[...new Set(ids)].filter(id=>{const L=selectableLists().find(x=>x.id===id);return L&&listSupportsGame(L,gameRoute);});
   if(!valid.length)return;state.activeListIds=valid;state.currentListId=valid[0];valid.forEach(rememberList);saveState();session=null;
@@ -623,25 +650,32 @@ function renderMemorySetup(){
   $$('[data-memory-players]').forEach(b=>b.onclick=()=>{game.memoryPlayers=+b.dataset.memoryPlayers;renderMemorySetup();});
   $('#memoryStart').onclick=()=>{const panel=$('.memory-setup-panel');panel?.classList.add('leaving');setTimeout(async()=>{game.memoryStage='play';await createMemoryRound();renderMemory();},150);};
 }
-function memoryGridShape(count){
-  const landscape=window.innerWidth>=window.innerHeight;
-  if(count<=8)return landscape?{cols:4,rows:2}:{cols:2,rows:4};
-  if(count<=12)return landscape?{cols:4,rows:3}:{cols:3,rows:4};
-  if(count<=16)return {cols:4,rows:4};
-  return landscape?{cols:6,rows:4}:{cols:4,rows:6};
+function memoryGridShape(count,boardW=window.innerWidth,boardH=window.innerHeight,gap=10){
+  const landscape=boardW>=boardH;
+  if(count===8)return landscape?{cols:4,rows:2}:{cols:2,rows:4};
+  if(count===12)return landscape?{cols:6,rows:2}:{cols:3,rows:4};
+  const candidates=[];
+  for(let rows=2;rows<=count;rows++){
+    if(count%rows)continue;const cols=count/rows;
+    if(landscape&&cols<rows)continue;if(!landscape&&rows<cols)continue;
+    const size=Math.min((boardW-gap*(cols-1))/cols,(boardH-gap*(rows-1))/rows);
+    candidates.push({cols,rows,size});
+  }
+  if(!candidates.length){const cols=Math.ceil(Math.sqrt(count)),rows=Math.ceil(count/cols);return {cols,rows};}
+  candidates.sort((a,b)=>b.size-a.size || (landscape?b.cols-a.cols:b.rows-a.rows));
+  return candidates[0];
 }
 function fitMemoryBoard(){
   const board=$('body.game-memory .memory-board'),grid=$('body.game-memory .memory-grid'),g=game.memory;
   if(!board||!grid||!g)return;
-  const {cols,rows}=memoryGridShape(g.cards.length);
-  const gap=clamp(Math.round(Math.min(board.clientWidth,board.clientHeight)*.018),6,14);
-  const availableW=Math.max(1,board.clientWidth-16),availableH=Math.max(1,board.clientHeight-16);
-  const size=Math.floor(Math.min((availableW-gap*(cols-1))/cols,(availableH-gap*(rows-1))/rows,380));
-  const safe=Math.max(46,size);
-  grid.style.setProperty('--memory-card-size',`${safe}px`);
+  const gap=clamp(Math.round(Math.min(board.clientWidth,board.clientHeight)*.014),5,12);
+  const availableW=Math.max(1,board.clientWidth-8),availableH=Math.max(1,board.clientHeight-8);
+  const {cols,rows}=memoryGridShape(g.cards.length,availableW,availableH,gap);
+  const size=Math.max(1,Math.floor(Math.min((availableW-gap*(cols-1))/cols,(availableH-gap*(rows-1))/rows)));
+  grid.style.setProperty('--memory-card-size',`${size}px`);
   grid.style.setProperty('--memory-gap',`${gap}px`);
-  grid.style.gridTemplateColumns=`repeat(${cols}, ${safe}px)`;
-  grid.style.gridAutoRows=`${safe}px`;
+  grid.style.gridTemplateColumns=`repeat(${cols}, ${size}px)`;
+  grid.style.gridAutoRows=`${size}px`;
 }
 function renderMemory(){
   if(!game.memoryStage||game.memoryStage==='setup')return renderMemorySetup();
@@ -749,19 +783,31 @@ function wheelFrame(now){
 }
 function startWheel(){const g=game.wheel;if(!g||g.spinning)return;g.spinning=true;g.lastFrame=performance.now();renderWheel();g.raf=requestAnimationFrame(wheelFrame);}
 function stopWheel(){const g=game.wheel;if(!g)return;if(g.raf)cancelAnimationFrame(g.raf);g.raf=null;g.spinning=false;g.lastFrame=0;if(route==='wheel')renderWheel();}
-function updateWheelSelected(){const g=game.wheel;if(!g)return;$$('[data-selected-slot]').forEach((el,i)=>el.textContent=g.selected[i]||'');}
+function updateWheelSelected(){const g=game.wheel;if(!g)return;$$('[data-selected-slot]').forEach((el,i)=>{el.textContent=g.selected[i]||'';el.classList.toggle('filled',!!g.selected[i]);});}
 function addWheelWord(word){const g=game.wheel;if(!g||!word)return;if(g.selected.length>=6)return toast('Oben sind bereits sechs Wörter.');g.selected.push(word);updateWheelSelected();}
+function moveWheelSelected(from,to){
+  const g=game.wheel;if(!g||from<0||from>=g.selected.length)return;to=clamp(to,0,Math.max(0,g.selected.length-1));if(from===to)return;
+  const [moved]=g.selected.splice(from,1);g.selected.splice(to,0,moved);renderWheel();
+}
 function renderWheel(){
   if(!game.wheel||game.wheel.materialKey!==activeMaterialKey())initWheel();const g=game.wheel;
   const controls=`<button class="soft-btn" id="wheelReset">Reset</button>`;
-  $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="game-shell">${gameHeader('Wortwalze','Die große Walze läuft von oben nach unten. Beim Loslassen wird das Wort unter dem Zeiger übernommen.',controls)}<div class="game-board"><div class="wheel-selected">${Array.from({length:6},(_,i)=>`<button class="wheel-slot" data-selected-slot="${i}" title="Wort entfernen">${esc(g.selected[i]||'')}</button>`).join('')}</div><div class="wheel-stage" id="wheelStage" aria-label="Wortwalze"><div class="wheel-track" style="transform:translate3d(0,calc(${g.offset}px - 84px),0)">${g.rows.map((w,i)=>`<div class="wheel-row" data-wheel-row="${i}">${esc(w)}</div>`).join('')}</div></div><div class="wheel-controls"><div class="field"><label>Drehgeschwindigkeit</label><input id="wheelSpeed" type="range" min="1" max="100" value="${g.speed}"></div><div class="field"><label>Schriftgröße</label><input id="wheelFont" type="range" min="80" max="200" value="${g.fontScale}"></div><button class="primary-btn wheel-spin-btn" id="wheelSpin">${g.spinning?'STOPP':'DREHEN'}</button></div></div></div>`;
+  $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="game-shell">${gameHeader('Wortwalze','Die große Walze läuft von oben nach unten. Beim Loslassen wird das Wort unter dem Zeiger übernommen.',controls)}<div class="game-board"><div class="wheel-selected">${Array.from({length:6},(_,i)=>`<button class="wheel-slot ${g.selected[i]?'filled':''}" data-selected-slot="${i}" draggable="${g.selected[i]?'true':'false'}" title="Ziehen zum Umsortieren · anklicken zum Entfernen">${esc(g.selected[i]||'')}</button>`).join('')}</div><div class="wheel-stage" id="wheelStage" aria-label="Wortwalze"><div class="wheel-track" style="transform:translate3d(0,calc(${g.offset}px - 84px),0)">${g.rows.map((w,i)=>`<div class="wheel-row" data-wheel-row="${i}">${esc(w)}</div>`).join('')}</div></div><div class="wheel-controls"><div class="field"><label>Drehgeschwindigkeit</label><input id="wheelSpeed" type="range" min="1" max="100" value="${g.speed}"></div><div class="field"><label>Schriftgröße</label><input id="wheelFont" type="range" min="80" max="200" value="${g.fontScale}"></div><button class="primary-btn wheel-spin-btn" id="wheelSpin">${g.spinning?'STOPP':'DREHEN'}</button></div></div></div>`;
   bindPlanBar();bindGameChrome();requestAnimationFrame(fitWheelGeometry);
   $('#wheelSpeed').oninput=e=>{g.speed=+e.target.value;game.wheelSpeed=g.speed;};
   $('#wheelFont').oninput=e=>{g.fontScale=+e.target.value;game.wheelFontScale=g.fontScale;fitWheelRows();};
   $('#wheelSpin').onclick=()=>g.spinning?stopWheel():startWheel();
   $('#wheelReset').onclick=()=>{if(g.raf)cancelAnimationFrame(g.raf);g.raf=null;g.spinning=false;g.selected=[];g.offset=0;g.rows=[];for(let i=0;i<12;i++)g.rows.push(randomWheelWord(g,g.rows.at(-1)));renderWheel();};
   $('#wheelStage').addEventListener('pointerup',e=>{const under=document.elementFromPoint(e.clientX,e.clientY)?.closest?.('.wheel-row');if(under&&$('#wheelStage').contains(under))addWheelWord(under.textContent.trim());});
-  $$('[data-selected-slot]').forEach(b=>b.onclick=()=>{const i=+b.dataset.selectedSlot;if(g.selected[i]){g.selected.splice(i,1);updateWheelSelected();}});
+  $$('[data-selected-slot]').forEach(b=>{
+    const i=+b.dataset.selectedSlot;
+    b.ondragstart=e=>{if(!g.selected[i]){e.preventDefault();return;}game.wheelDragFrom=i;b.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/x-wortzeit-wheel',String(i));};
+    b.ondragover=e=>{if(game.wheelDragFrom==null)return;e.preventDefault();e.dataTransfer.dropEffect='move';b.classList.add('drag-over');};
+    b.ondragleave=()=>b.classList.remove('drag-over');
+    b.ondrop=e=>{e.preventDefault();b.classList.remove('drag-over');const from=Number(e.dataTransfer.getData('text/x-wortzeit-wheel'));game.wheelDragFrom=null;game.wheelJustDragged=true;setTimeout(()=>{game.wheelJustDragged=false;},120);if(Number.isFinite(from)&&from!==i)moveWheelSelected(from,i);};
+    b.ondragend=()=>{game.wheelDragFrom=null;b.classList.remove('dragging');$$('[data-selected-slot]').forEach(x=>x.classList.remove('drag-over'));};
+    b.onclick=()=>{if(game.wheelDragFrom!=null||game.wheelJustDragged)return;if(g.selected[i]){g.selected.splice(i,1);updateWheelSelected();}};
+  });
 }
 
 
@@ -828,15 +874,22 @@ function buildSyllableRound(){
   if(!words.length)words=[{word:'Banane',syllables:['Ba','na','ne']},{word:'Tomate',syllables:['To','ma','te']}];
   game.syllables={options:shuffle(words.flatMap(x=>x.syllables).slice(0,6)),built:[],validWords:words,targetWord:words[0].word,targetSyllables:words[0].syllables,message:'',materialKey:activeMaterialKey()};
 }
+function recognizedSyllableWord(built,g){
+  const norm=normalizeWordForSyllables(built);if(!norm)return '';
+  const round=(g.validWords||[]).find(x=>normalizeWordForSyllables(x.word)===norm);if(round)return round.word;
+  const sources=[...activeItems(),...DATA.lexicon.map((x,i)=>({id:`lex_${i}`,text:x.word})),...DATA.legacyLists.flatMap(L=>(L.items||[]))];
+  for(const it of sources){const text=String(it.text||it.word||'').trim();if(!text||text.length>32||/[\s,.!?;:]/.test(text))continue;if(normalizeWordForSyllables(text)===norm)return text.replace(/[·]/g,'');}
+  return '';
+}
 function evaluateSyllables(g){
-  const built=normalizeWordForSyllables(g.built.join(''));if(!built){g.message='';g.hitWord='';return;}
-  const hit=(g.validWords||[]).find(x=>normalizeWordForSyllables(x.word)===built);g.hitWord=hit?.word||'';g.message=hit?'Wort erkannt':'';
+  const builtRaw=g.built.join(''),built=normalizeWordForSyllables(builtRaw);if(!built){g.message='';g.hitWord='';return;}
+  const hit=recognizedSyllableWord(builtRaw,g);g.hitWord=hit||'';g.message=hit?'Wort erkannt':'';
 }
 function renderSyllables(){
   if(!game.syllables||game.syllables.materialKey!==activeMaterialKey())buildSyllableRound();const g=game.syllables;
   const controls=`<button class="soft-btn" id="syllableReset">Reset</button><button class="soft-btn" id="syllableNew">Mischen</button>`;
   const vertices=[[25,0,-50,-100],[75,0,-50,-100],[100,50,0,-50],[75,100,-50,0],[25,100,-50,0],[0,50,-100,-50]];
-  $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="game-shell">${gameHeader('Silben','Wähle Silben an den sechs Ecken und setze sie oben zusammen. Die sechs Silben bilden immer vollständige Wörter.',controls)}<div class="game-board"><div class="syllable-workspace" aria-label="Arbeitsbereich" id="syllableWorkspace">${g.built.length?g.built.map((sy,i)=>`<button class="syllable-piece" draggable="true" data-built="${i}" title="Antippen zum Entfernen">${esc(String(sy).toLocaleUpperCase('de'))}</button>`).join(''):'<span class="muted">SILBEN HIER ZUSAMMENSETZEN</span>'}</div><div class="hex-wrap"><div class="hex-frame"><div class="hex-shape"><div class="syllable-result ${g.hitWord?'recognized':''}">${esc((g.hitWord||'SILBEN').toLocaleUpperCase('de'))}</div></div>${g.options.map((sy,i)=>{const v=vertices[i];return `<button class="hex-syllable" style="--hx:${v[0]}%;--hy:${v[1]}%;--tx:${v[2]}%;--ty:${v[3]}%" data-syllable="${i}" draggable="true">${esc(String(sy).toLocaleUpperCase('de'))}</button>`}).join('')}</div></div></div></div>`;
+  $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="game-shell">${gameHeader('Silben','Wähle Silben an den sechs Ecken und setze sie oben zusammen. Die sechs Silben bilden immer vollständige Wörter.',controls)}<div class="game-board"><div class="syllable-workspace" aria-label="Arbeitsbereich" id="syllableWorkspace">${g.built.length?g.built.map((sy,i)=>`<button class="syllable-piece" draggable="true" data-built="${i}" title="Antippen zum Entfernen">${esc(String(sy).toLocaleUpperCase('de'))}</button>`).join(''):'<span class="muted">SILBEN HIER ZUSAMMENSETZEN</span>'}</div><div class="hex-wrap"><div class="hex-frame"><div class="hex-shape"><div class="syllable-result ${g.hitWord?'recognized':''}">${esc((g.hitWord||(g.built.length?g.built.join(''):'SILBEN')).toLocaleUpperCase('de'))}</div></div>${g.options.map((sy,i)=>{const v=vertices[i];return `<button class="hex-syllable" style="--hx:${v[0]}%;--hy:${v[1]}%;--tx:${v[2]}%;--ty:${v[3]}%" data-syllable="${i}" draggable="true">${esc(String(sy).toLocaleUpperCase('de'))}</button>`}).join('')}</div></div></div></div>`;
   bindPlanBar();bindGameChrome();requestAnimationFrame(fitSyllableBoard);
   const addOption=i=>{const sy=g.options[i];if(!sy)return;g.built.push(sy);evaluateSyllables(g);renderSyllables();};
   $$('[data-syllable]').forEach(b=>{b.onclick=()=>addOption(+b.dataset.syllable);b.ondragstart=e=>e.dataTransfer.setData('text/plain',`option:${b.dataset.syllable}`);});
@@ -920,10 +973,9 @@ function renderChoiceStoryReading(story,g){
 
 // ---------- Semantic word network ----------
 function newSemanticRound(){
-  const lexMap=new Map(DATA.lexicon.map(x=>[normalizeWordForSyllables(x.word),x.word]));
-  const raw=activeItems().map(x=>{const text=String(x.text||'').trim(),canonical=lexMap.get(normalizeWordForSyllables(text));return canonical?{...x,text:canonical}:x;});
-  let items=raw.filter(x=>/^[A-Za-zÄÖÜäöüß]+(?:-[A-Za-zÄÖÜäöüß]+)?$/.test(String(x.text||'').trim())&&String(x.text||'').trim().length>=2&&String(x.text||'').trim().length<=28);
-  if(!items.length)items=DATA.lexicon.filter(x=>x.word.length>=2&&x.word.length<=28&&/^[A-Za-zÄÖÜäöüß]+(?:-[A-Za-zÄÖÜäöüß]+)?$/.test(x.word)).slice(0,1000).map((x,i)=>({id:`semantic_${i}`,text:x.word,sourceListId:'lexicon'}));
+  const explicit=hasExplicitMaterial();
+  const source=explicit?activeItems():defaultList.items.map(x=>({...x,sourceListId:defaultList.id,sourceListTitle:'Fallback'}));
+  const items=source.filter(x=>{const text=String(x.text||'').trim();return /^[A-Za-zÄÖÜäöüß]+(?:-[A-Za-zÄÖÜäöüß]+)?$/.test(text)&&text.length>=2&&text.length<=32;});
   if(!items.length){game.semantic=null;return;}
   const used=game.semanticUsed||new Set();let choices=items.filter(x=>!used.has(`${x.sourceListId}:${x.id}`));if(!choices.length){used.clear();choices=items;}
   const item=choices[Math.floor(Math.random()*choices.length)];used.add(`${item.sourceListId}:${item.id}`);game.semanticUsed=used;
@@ -935,7 +987,7 @@ function renderSemantic(){
   const prompts=[
     ['Kategorie','Was ist es?'],['Verwendung','Wofür braucht man es?'],['Ort','Wo findet man es?'],['Eigenschaften','Wie ist es?'],['Aussehen / Teile','Wie sieht es aus oder woraus besteht es?'],['Verbindungen','Was passt dazu?']
   ];
-  $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="game-shell">${gameHeader('Wortnetz','Den Begriff gemeinsam von verschiedenen Seiten beschreiben. Es gibt keine automatische Bewertung.',controls)}<div class="game-board semantic-board">${!g?'<div class="error-banner">Für diese Übung wurde kein passender Begriff gefunden.</div>':`<div class="semantic-network"><div class="semantic-target">${esc(g.item.text)}</div>${prompts.map(([a,b],i)=>`<button class="semantic-prompt ${g.marked.has(i)?'done':''}" data-semantic="${i}"><strong>${a}</strong><span>${b}</span></button>`).join('')}</div>`}</div></div>`;
+  $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="game-shell">${gameHeader('Wortnetz','Den Begriff gemeinsam von verschiedenen Seiten beschreiben. Es gibt keine automatische Bewertung.',controls)}<div class="game-board semantic-board">${!g?'<div class="error-banner">Die gewählte Liste enthält keine passenden einzelnen Wörter. Wähle oben eine andere Liste.</div>':`<div class="semantic-network"><div class="semantic-target">${esc(g.item.text)}</div>${prompts.map(([a,b],i)=>`<button class="semantic-prompt ${g.marked.has(i)?'done':''}" data-semantic="${i}"><strong>${a}</strong><span>${b}</span></button>`).join('')}</div>`}</div></div>`;
   bindPlanBar();bindGameChrome();
   $$('[data-semantic]').forEach(b=>b.onclick=()=>{const i=+b.dataset.semantic;if(g.marked.has(i))g.marked.delete(i);else g.marked.add(i);renderSemantic();});
   $('#semanticReset')?.addEventListener('click',()=>{g.marked.clear();renderSemantic();});$('#semanticNext')?.addEventListener('click',()=>{newSemanticRound();renderSemantic();});
@@ -1117,15 +1169,16 @@ function clickDefaultAction(){
 }
 
 // ---------- Service worker ----------
-if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.7.0',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
+if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.7.1',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
 
 // ---------- Global events/init ----------
+try{history.replaceState({wz:true,route:'home',depth:0},'',location.href);}catch{}
 $('#menuButton').onclick=openDrawer;$('#closeDrawer').onclick=closeDrawer;$('#scrim').onclick=closeDrawer;$('#helpButton').onclick=contextualHelp;$('#patientModeButton').onclick=enterPatientMode;$('.brand').onclick=()=>{if(!patientMode)nav('home');};$('.brand').onkeydown=e=>{if(!patientMode&&(e.key==='Enter'||e.key===' '))nav('home');};$$('.drawer-nav [data-route]').forEach(b=>b.onclick=()=>nav(b.dataset.route));$('#currentListButton').onclick=()=>nav('lists');
-window.addEventListener('keydown',e=>{const typing=e.target.matches('input,textarea,select,button,a')||e.target.isContentEditable;if(e.key==='Escape'){if($('#modalRoot').innerHTML)closeModal();else if($('#drawer').classList.contains('open'))closeDrawer();else if(GAME_ROUTES.includes(route)){e.preventDefault();gameBack();}return;}if(!typing&&(e.key==='Enter'||e.key===' ')){if($('#modalRoot').innerHTML&&clickDefaultAction()){e.preventDefault();return;}if(GAME_ROUTES.includes(route)&&clickDefaultAction()){e.preventDefault();return;}}if(route==='session'&&!typing){if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();sessionNext();}if(e.key==='ArrowLeft'){e.preventDefault();sessionPrev();}}});
+$('#navBackButton')?.addEventListener('click',navigationBack);$('#navForwardButton')?.addEventListener('click',navigationForward);window.addEventListener('popstate',handleHistoryPop);
+window.addEventListener('keydown',e=>{const typing=e.target.matches('input,textarea,select,button,a')||e.target.isContentEditable;if(e.altKey&&e.key==='ArrowLeft'){e.preventDefault();navigationBack();return;}if(e.altKey&&e.key==='ArrowRight'){e.preventDefault();navigationForward();return;}if(e.key==='Escape'){if($('#modalRoot').innerHTML)closeModal();else if($('#drawer').classList.contains('open'))closeDrawer();else if(GAME_ROUTES.includes(route)){e.preventDefault();gameBack();}return;}if(!typing&&(e.key==='Enter'||e.key===' ')){if($('#modalRoot').innerHTML&&clickDefaultAction()){e.preventDefault();return;}if(GAME_ROUTES.includes(route)&&clickDefaultAction()){e.preventDefault();return;}}if(route==='session'&&!typing){if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();sessionNext();}if(e.key==='ArrowLeft'){e.preventDefault();sessionPrev();}}});
 window.addEventListener('beforeunload',()=>stopAutoplay());
+window.addEventListener('resize',()=>{if(route==='memory'&&game.memoryStage==='play')fitMemoryBoard();if(route==='story')fitStoryBoard();if(route==='wheel')fitWheelGeometry();if(route==='syllables')fitSyllableBoard();if(route==='session')fitSessionText();});
 
 if(patientMode)document.body.classList.add('patient-mode');
-updateHeader();render();
+updateHeader();render();syncNavigationButtons();
 })();
-
-window.addEventListener('resize',()=>{if(route==='memory'&&game.memoryStage==='play')fitMemoryBoard();if(route==='story')fitStoryBoard();if(route==='wheel')fitWheelGeometry();if(route==='syllables')fitSyllableBoard();if(route==='session')fitSessionText();});

@@ -16,12 +16,16 @@
   <meta name="description" content="Lokale Therapie- und Übungsoberfläche für Wortlisten, Spiele und Therapiepläne." />
   <link rel="manifest" href="manifest-therapist.webmanifest?v=0.7.0" />
   <link rel="stylesheet" href="styles.css?v=0.7.0" />
-  <title>WortZeit Therapie v0.7.0</title>
+  <title>WortZeit Therapie v0.7.1</title>
 </head>
 <body data-theme="calm">
   <div id="app" class="app-shell">
     <header class="topbar">
       <button id="menuButton" class="icon-btn" aria-label="Menü öffnen" title="Menü">☰</button>
+      <div class="nav-history-controls" aria-label="Navigation zurück und vor">
+        <button id="navBackButton" class="icon-btn nav-history-btn" aria-label="Zurück" title="Zurück" disabled>←</button>
+        <button id="navForwardButton" class="icon-btn nav-history-btn" aria-label="Vor" title="Vor" disabled>→</button>
+      </div>
       <div class="brand" role="button" tabindex="0" data-route="home" aria-label="Startseite">
         <div class="brand-mark">WZ</div>
         <div>
