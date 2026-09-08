@@ -1,7 +1,7 @@
-const CACHE='wortzeit-v0.6.2';
+const CACHE='wortzeit-v0.7.0';
 const SHELL=[
   './','./index.html','./app.html','./behandler.html','./patient.html',
-  './styles.css?v=0.6.2','./data.js?v=0.6.2','./app.js?v=0.6.2',
+  './styles.css?v=0.7.0','./data.js?v=0.7.0','./app.js?v=0.7.0',
   './manifest-patient.webmanifest','./manifest-therapist.webmanifest'
 ];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting())));
@@ -17,7 +17,8 @@ self.addEventListener('fetch',e=>{
     }catch{
       const hit=await caches.match(e.request);if(hit)return hit;
       if(e.request.mode==='navigate'){
-        if(url.pathname.endsWith('/app.html')||url.pathname.endsWith('/behandler.html')) return (await caches.match('./app.html')) || (await caches.match('./index.html'));
+        if(url.pathname.endsWith('/behandler.html')) return (await caches.match('./behandler.html')) || (await caches.match('./index.html'));
+        if(url.pathname.endsWith('/app.html')) return (await caches.match('./app.html')) || (await caches.match('./index.html'));
         return (await caches.match('./index.html'));
       }
       return Response.error();
