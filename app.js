@@ -30,14 +30,16 @@ const defaultList = {
 };
 
 const DEFAULT_STATE = {
-  version:1,
+  version:2,
   currentListId:null,
   userLists:[], patients:[], plans:[], storyTitleOverrides:{}, activeListIds:[], recentListIds:[],
+  importReviewBatches:[], lastImportBatchId:null, listFolderOpen:{}, reviewMigrationVersion:0,
   settings:{lang:'de',theme:'calm',brightness:55,itemsPerScreen:1,order:'random',unique:true,endless:false,interval:3,bpm:60,beats:4,instantAudio:false,reducedMotion:false,onboardingSeen:false},
   stats:{sortScore:0,storyScore:0,letterScore:0}
 };
 
 let state = loadState();
+if(migrateImportReviewState(state)) saveState();
 let route = 'home';
 let session = null;
 let game = {};
@@ -62,11 +64,39 @@ function loadState(){
       plans:Array.isArray(parsed.plans)?parsed.plans:[],
       storyTitleOverrides:parsed.storyTitleOverrides && typeof parsed.storyTitleOverrides==='object'?parsed.storyTitleOverrides:{},
       activeListIds:Array.isArray(parsed.activeListIds)&&parsed.activeListIds.length?parsed.activeListIds:[parsed.currentListId||defaultList.id],
-      recentListIds:Array.isArray(parsed.recentListIds)?parsed.recentListIds:[]
+      recentListIds:Array.isArray(parsed.recentListIds)?parsed.recentListIds:[],
+      importReviewBatches:Array.isArray(parsed.importReviewBatches)?parsed.importReviewBatches:[],
+      lastImportBatchId:parsed.lastImportBatchId||null,
+      listFolderOpen:parsed.listFolderOpen&&typeof parsed.listFolderOpen==='object'?parsed.listFolderOpen:{},
+      reviewMigrationVersion:Number(parsed.reviewMigrationVersion)||0
     };
   }catch(e){ console.warn(e); return cloneData(DEFAULT_STATE); }
 }
 function saveState(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+function migrateImportReviewState(s){
+  let changed=false;
+  if(!Array.isArray(s.importReviewBatches)){s.importReviewBatches=[];changed=true;}
+  if(!s.listFolderOpen||typeof s.listFolderOpen!=='object'||Array.isArray(s.listFolderOpen)){s.listFolderOpen={};changed=true;}
+  if(!Number.isFinite(+s.reviewMigrationVersion))s.reviewMigrationVersion=0;
+  if(+s.reviewMigrationVersion<1){
+    const candidates=(s.userLists||[]).filter(L=>!L.review&&(L.sourcePath||/^Import/i.test(L.category||'')||String(L.category||'').includes('/')));
+    if(candidates.length){
+      const batchId='import_existing_v073';
+      const now=new Date().toISOString();
+      candidates.forEach(L=>{L.review={status:'new',batchId,importedAt:null,confidence:'unknown',separator:'unbekannt',warnings:['Vor v0.7.3 importiert – bitte einmal kurz prüfen.']};});
+      if(!s.importReviewBatches.some(b=>b.id===batchId))s.importReviewBatches.unshift({id:batchId,createdAt:now,title:'Bereits importierte Listen',listIds:candidates.map(L=>L.id),failed:[],migrated:true});
+      s.lastImportBatchId=batchId;changed=true;
+    }
+    s.reviewMigrationVersion=1;changed=true;
+  }
+  (s.userLists||[]).forEach(L=>{if(L.review&& !['new','warning','checked'].includes(L.review.status)){L.review.status='new';changed=true;}});
+  return changed;
+}
+function listNeedsReview(L){return !!L?.review&&['new','warning'].includes(L.review.status);}
+function listReviewStatusLabel(L){return L?.review?.status==='warning'?'PRÜFEN':L?.review?.status==='new'?'NEU':L?.review?.status==='checked'?'GEPRÜFT':'';}
+function listKindLabel(L){return L?.kind==='pair'?'A/B':L?.kind==='choiceStory'?'Geschichte':'Liste';}
+function confidenceLabel(v){return v==='high'?'Sicher':v==='medium'?'Wahrscheinlich':v==='low'?'Unklar':'Altimport';}
+function markListReviewed(L,checked=true){if(!L?.review)return;L.review.status=checked?'checked':(L.review.warnings?.length?'warning':'new');L.review.checkedAt=checked?new Date().toISOString():null;saveState();}
 function allLists(){ return [defaultList, ...DATA.legacyLists, ...state.userLists]; }
 function selectableLists(){ return [...DATA.legacyLists, ...state.userLists]; }
 function explicitListIds(){ return (state.activeListIds||[]).filter(id=>id!==defaultList.id && selectableLists().some(L=>L.id===id)); }
@@ -163,7 +193,7 @@ function bindGameChrome(){ $('.game-back-btn')?.addEventListener('click',gameBac
 function applyGameMaterialSelection(ids,gameRoute){
   const valid=[...new Set(ids)].filter(id=>{const L=selectableLists().find(x=>x.id===id);return L&&listSupportsGame(L,gameRoute);});
   if(!valid.length)return;state.activeListIds=valid;state.currentListId=valid[0];valid.forEach(rememberList);saveState();session=null;
-  const keep={memoryMode:game.memoryMode,memoryCount:game.memoryCount,memoryPlayers:game.memoryPlayers,memoryManualAdvance:game.memoryManualAdvance,wheelSpeed:game.wheelSpeed,wheelFontScale:game.wheelFontScale};
+  const keep={memoryMode:game.memoryMode,memoryCount:game.memoryCount,memoryPlayers:game.memoryPlayers,memoryManualAdvance:game.memoryManualAdvance,wheelSpeed:game.wheelSpeed,wheelFontScaleV2:game.wheelFontScaleV2};
   game={...keep};updateHeader();closeModal();render();
 }
 function openGameMaterialPicker(gameRoute){
@@ -183,7 +213,7 @@ function shouldGateGame(gameRoute){return LIST_GAME_ROUTES.includes(gameRoute)&&
 function helpModal(title, body){
   openModal(`<div class="modal-head"><div><div class="eyebrow">Hilfe</div><h2>${esc(title)}</h2></div><button class="icon-btn" data-close-modal>×</button></div><div class="help-text">${body}</div><div class="modal-foot"><button class="primary-btn" data-close-modal>Verstanden</button></div>`);
 }
-function openModal(html){ $('#modalRoot').innerHTML=`<div class="modal-backdrop" role="dialog" aria-modal="true"><div class="modal">${html}</div></div>`; $$('[data-close-modal]').forEach(b=>b.onclick=closeModal); $('.modal-backdrop').addEventListener('click',e=>{if(e.target.classList.contains('modal-backdrop')) closeModal();}); }
+function openModal(html,modalClass=''){ $('#modalRoot').innerHTML=`<div class="modal-backdrop" role="dialog" aria-modal="true"><div class="modal ${esc(modalClass)}">${html}</div></div>`; $$('[data-close-modal]').forEach(b=>b.onclick=closeModal); $('.modal-backdrop').addEventListener('click',e=>{if(e.target.classList.contains('modal-backdrop')) closeModal();}); }
 function closeModal(){ $('#modalRoot').innerHTML=''; }
 function downloadBlob(filename, blob){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000); }
 
@@ -353,6 +383,8 @@ function audioDb(){ return new Promise((resolve,reject)=>{const req=indexedDB.op
 async function audioSet(key,blob){const db=await audioDb();return new Promise((res,rej)=>{const tx=db.transaction('audio','readwrite');tx.objectStore('audio').put(blob,key);tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);});}
 async function audioGet(key){try{const db=await audioDb();return await new Promise((res,rej)=>{const tx=db.transaction('audio','readonly');const r=tx.objectStore('audio').get(key);r.onsuccess=()=>res(r.result||null);r.onerror=()=>rej(r.error);});}catch{return null;}}
 async function audioDelete(key){const db=await audioDb();return new Promise((res,rej)=>{const tx=db.transaction('audio','readwrite');tx.objectStore('audio').delete(key);tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);});}
+async function audioAllEntries(){try{const db=await audioDb();return await new Promise((res,rej)=>{const out=[];const tx=db.transaction('audio','readonly');const req=tx.objectStore('audio').openCursor();req.onsuccess=()=>{const c=req.result;if(!c){res(out);return;}out.push([String(c.key),c.value]);c.continue();};req.onerror=()=>rej(req.error);});}catch{return [];}}
+async function audioClearAll(){try{const db=await audioDb();return await new Promise((res,rej)=>{const tx=db.transaction('audio','readwrite');tx.objectStore('audio').clear();tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);});}catch{}}
 function playBlob(blob){const url=URL.createObjectURL(blob);const a=new Audio(url);a.onended=()=>URL.revokeObjectURL(url);a.play().catch(()=>URL.revokeObjectURL(url));}
 function openAudioDialog(){
   if(!session) return; const idx=sessionCurrentIndices()[0]; if(idx==null)return; const item=session.items[idx];
@@ -370,6 +402,8 @@ function renderLists(){
   const recent=(state.recentListIds||[]).map(id=>lists.find(L=>L.id===id)).filter(Boolean).slice(0,6);
   const activeIds=new Set(explicitListIds());
   const activeExplicit=explicitListIds().map(id=>lists.find(L=>L.id===id)).filter(Boolean);
+  const pending=lists.filter(listNeedsReview);
+  const lastBatch=(state.importReviewBatches||[]).find(b=>b.id===state.lastImportBatchId)||null;
   $('#view').innerHTML=pageHead('Material','Listen','Listen einmal sauber einordnen – danach findest du in jedem Spiel nur das passende Material.',`<button class="primary-btn" id="newList">+ Neue Liste</button><button class="secondary-btn" id="importFile">Datei importieren</button><button class="secondary-btn" id="importFolder">Ordner importieren</button>`)+`
   <div class="active-material card">
     <div><div class="eyebrow">Für die nächsten Übungen</div><strong>${activeExplicit.length?esc(activeMaterialTitle()):'Keine Liste gewählt'}</strong><div class="muted small">${activeExplicit.length?`${activeItems().length} eindeutige Einträge`:'Ohne Auswahl stehen die Standardwörter nur als stiller Fallback bereit.'}</div></div>
@@ -379,7 +413,12 @@ function renderLists(){
   <div class="list-browser">
     <div class="card list-tree">
       <div class="field"><label>Liste suchen</label><input id="listSearch" type="search" placeholder="z. B. K-Wörter"></div>
-      <div class="small muted" style="margin-top:8px">Klick auf den Namen = auswählen. ✓ fügt mehrere Listen zu einer Mischübung zusammen.</div>
+      <div class="list-tree-tools">
+        <button class="soft-btn compact-btn" id="collapseAllFolders">▸ Alle schließen</button>
+        ${pending.length?`<button class="review-summary-btn" id="openPendingReview">Import prüfen <span>${pending.length}</span></button><button class="soft-btn compact-btn" id="openPendingFolders">Nur ungeprüfte öffnen</button>`:''}
+        ${lastBatch?`<button class="soft-btn compact-btn" id="openLastImport">Letzter Import</button>`:''}
+      </div>
+      <div class="small muted" style="margin-top:8px">Ordner sind zunächst geschlossen. Klick auf einen Ordner klappt ihn auf oder wieder zu. Klick auf einen Listennamen = auswählen, ✓ = zur Mischübung hinzufügen.</div>
       <div id="listTree" class="section"></div>
     </div>
     <div class="card" id="listDetail"></div>
@@ -387,19 +426,25 @@ function renderLists(){
   <input id="filePicker" type="file" accept=".rtf,.txt,.csv,.json,.odt,.ods" hidden multiple>
   <input id="folderPicker" type="file" webkitdirectory directory multiple hidden>`;
   const renderTree=(q='')=>{
-    const norm=q.trim().toLowerCase();
-    const filtered=lists.filter(x=>!norm || `${x.title} ${x.category} ${listGameTags(x).map(t=>LIST_GAME_LABELS[t]).join(' ')}`.toLowerCase().includes(norm));
+    const norm=q.trim().toLocaleLowerCase('de');
+    const filtered=lists.filter(x=>!norm || `${x.title} ${x.category} ${listGameTags(x).map(t=>LIST_GAME_LABELS[t]).join(' ')}`.toLocaleLowerCase('de').includes(norm));
     const groups=new Map();filtered.forEach(L=>{const cat=L.category||'Eigene Listen';if(!groups.has(cat))groups.set(cat,[]);groups.get(cat).push(L);});groups.forEach(arr=>arr.sort((a,b)=>a.title.localeCompare(b.title,'de',{sensitivity:'base',numeric:true})));
-    $('#listTree').innerHTML=[...groups.entries()].map(([cat,arr])=>`<div style="margin-bottom:14px"><div class="eyebrow" style="padding:7px 9px">${esc(cat)}</div>${arr.map(L=>`<div class="list-item-row"><button class="list-item ${L.id===state.currentListId?'active':''}" data-list-id="${esc(L.id)}"><strong>${esc(L.title)}</strong><small>${L.items?.length||0} Einträge${L.kind==='pair'?' · A/B':''}</small><span class="list-game-mini">${listGameTags(L).filter(x=>x!=='session').slice(0,4).map(x=>esc(LIST_GAME_LABELS[x])).join(' · ')}</span></button><button class="mix-check ${activeIds.has(L.id)?'checked':''}" data-mix-list="${esc(L.id)}" aria-label="${activeIds.has(L.id)?'Aus Mischung entfernen':'Zur Mischung hinzufügen'}" title="${activeIds.has(L.id)?'In Mischübung aktiv':'Zur Mischübung hinzufügen'}">${activeIds.has(L.id)?'✓':'+'}</button></div>`).join('')}</div>`).join('')||'<p class="muted">Keine Treffer.</p>';
+    const entries=[...groups.entries()].sort((a,b)=>a[0].localeCompare(b[0],'de',{sensitivity:'base',numeric:true}));
+    $('#listTree').innerHTML=entries.map(([cat,arr])=>{
+      const open=!!norm||!!state.listFolderOpen?.[cat],unreviewed=arr.filter(listNeedsReview).length;
+      return `<div class="list-folder-group"><button class="list-folder-toggle ${open?'open':''}" data-folder-toggle="${esc(cat)}" aria-expanded="${open?'true':'false'}"><span class="folder-arrow">${open?'▾':'▸'}</span><span class="folder-name">${esc(cat)}</span><span class="folder-count">${arr.length}</span>${unreviewed?`<span class="folder-review-count">${unreviewed} neu</span>`:''}</button>${open?`<div class="list-folder-content">${arr.map(L=>{const status=listReviewStatusLabel(L);return `<div class="list-item-row"><button class="list-item ${L.id===state.currentListId?'active':''}" data-list-id="${esc(L.id)}"><div class="list-item-title-line"><strong>${esc(L.title)}</strong>${status&&L.review?.status!=='checked'?`<span class="list-review-pill ${L.review.status}">${status}</span>`:''}</div><small>${L.items?.length||0} Einträge${L.kind==='pair'?' · A/B':''}</small><span class="list-game-mini">${listGameTags(L).filter(x=>x!=='session').slice(0,4).map(x=>esc(LIST_GAME_LABELS[x])).join(' · ')}</span></button><button class="mix-check ${activeIds.has(L.id)?'checked':''}" data-mix-list="${esc(L.id)}" aria-label="${activeIds.has(L.id)?'Aus Mischung entfernen':'Zur Mischung hinzufügen'}" title="${activeIds.has(L.id)?'In Mischübung aktiv':'Zur Mischübung hinzufügen'}">${activeIds.has(L.id)?'✓':'+'}</button></div>`}).join('')}</div>`:''}</div>`;
+    }).join('')||'<p class="muted">Keine Treffer.</p>';
+    $$('[data-folder-toggle]').forEach(b=>b.onclick=()=>{const cat=b.dataset.folderToggle;state.listFolderOpen=state.listFolderOpen||{};state.listFolderOpen[cat]=!state.listFolderOpen[cat];saveState();renderTree($('#listSearch').value);});
     $$('[data-list-id]').forEach(b=>b.onclick=()=>{setCurrentList(b.dataset.listId);renderLists();});
     $$('[data-mix-list]').forEach(b=>b.onclick=()=>{toggleActiveList(b.dataset.mixList);renderLists();});
   };
   const renderDetail=()=>{
     const L=lists.find(x=>x.id===state.currentListId)||activeExplicit[0]||null;
     if(!L){$('#listDetail').innerHTML=`<div class="empty-list-detail"><div class="material-gate-icon">≡</div><h2>Liste auswählen</h2><p class="muted">Wähle links eine vorhandene Liste oder importiere einen Ordner. Die integrierten Standardwörter werden hier absichtlich nicht als normale Liste angezeigt.</p></div>`;return;}
-    const preview=(L.items||[]).slice(0,160),tags=listGameTags(L);
-    $('#listDetail').innerHTML=`<div class="section-title"><div><div class="eyebrow">${esc(L.category||'Liste')}</div><h2>${esc(L.title)}</h2></div><div class="toolbar"><button class="primary-btn" data-route="session">Verwenden</button><button class="soft-btn" id="mixThis">${activeIds.has(L.id)?'✓ In Mischung':'＋ Zur Mischung'}</button><button class="soft-btn" id="recordBank">Aufnahmebank</button><button class="soft-btn" id="editList">${L.bundled?'Kopie bearbeiten':'Liste bearbeiten'}</button><button class="soft-btn" id="exportList">Export</button>${L.bundled?'':`<button class="danger-btn" id="deleteList">Löschen</button>`}</div></div>
+    const preview=(L.items||[]).slice(0,160),tags=listGameTags(L),review=L.review;
+    $('#listDetail').innerHTML=`<div class="section-title"><div><div class="eyebrow">${esc(L.category||'Liste')}</div><h2>${esc(L.title)}</h2></div><div class="toolbar"><button class="primary-btn" data-route="session">Verwenden</button><button class="soft-btn" id="mixThis">${activeIds.has(L.id)?'✓ In Mischung':'＋ Zur Mischung'}</button><button class="soft-btn" id="recordBank">Aufnahmebank</button><button class="soft-btn" id="editList">${L.bundled?'Kopie bearbeiten':'Liste bearbeiten'}</button><button class="soft-btn" id="exportList">Export</button>${review&&listNeedsReview(L)?`<button class="review-done-btn" id="markReviewed">✓ Geprüft</button>`:''}${L.bundled?'':`<button class="danger-btn" id="deleteList">Löschen</button>`}</div></div>
       <p class="muted">${L.items?.length||0} Einträge · ${L.kind==='pair'?'A/B-Paare':L.kind==='choiceStory'?'Auswahlgeschichte':'Wort-/Textliste'}</p>
+      ${review?`<div class="list-review-detail ${esc(review.status)}"><strong>${esc(listReviewStatusLabel(L)||'Import')}</strong><span>Erkennung: ${esc(confidenceLabel(review.confidence))}${review.separator?` · Trennung: ${esc(review.separator)}`:''}</span>${review.warnings?.length?`<span>${review.warnings.map(esc).join(' · ')}</span>`:''}</div>`:''}
       <div class="list-game-tags"><span class="muted small">Geeignet für:</span>${tags.map(t=>`<span class="list-game-tag">${esc(LIST_GAME_LABELS[t]||t)}</span>`).join('')}</div>
       <div class="item-preview editable-preview">${preview.map((x,i)=>`<button class="preview-row preview-edit-row" data-edit-item="${i}" title="Eintrag bearbeiten"><span class="muted small">${i+1}.</span><span>${esc(x.sourceText||x.text)}</span><span class="preview-edit-mark">✎</span></button>`).join('')}${(L.items?.length||0)>preview.length?`<div class="preview-row muted">… und ${(L.items.length-preview.length)} weitere</div>`:''}</div><div class="divider"></div><div class="small muted">Quelle: ${esc(L.sourcePath||'lokal angelegt')}</div>`;
     bindRouteButtons();
@@ -407,11 +452,16 @@ function renderLists(){
     $('#recordBank').onclick=()=>openRecordingBank(L);
     $('#editList').onclick=()=>openListEditor(L);
     $$('[data-edit-item]').forEach(b=>b.onclick=()=>openItemEditor(L,+b.dataset.editItem));
+    $('#markReviewed')?.addEventListener('click',()=>{markListReviewed(L,true);renderLists();toast('Liste als geprüft markiert');});
     $('#exportList').onclick=()=>downloadBlob(`${safeFilename(L.title)}.wortliste.json`,new Blob([JSON.stringify({format:'wortzeit-list',version:2,list:{...L,gameTags:listGameTags(L)}},null,2)],{type:'application/json'}));
     $('#deleteList')?.addEventListener('click',()=>{if(confirm(`Liste „${L.title}“ wirklich löschen?`)){state.userLists=state.userLists.filter(x=>x.id!==L.id);state.activeListIds=explicitListIds().filter(id=>id!==L.id);if(state.currentListId===L.id)state.currentListId=state.activeListIds[0]||null;saveState();session=null;game={};renderLists();}});
   };
   renderTree();renderDetail();
   $('#listSearch').oninput=e=>renderTree(e.target.value);
+  $('#collapseAllFolders').onclick=()=>{state.listFolderOpen={};saveState();renderTree($('#listSearch').value);};
+  $('#openPendingFolders')?.addEventListener('click',()=>{const next={};lists.filter(listNeedsReview).forEach(L=>next[L.category||'Eigene Listen']=true);state.listFolderOpen=next;saveState();renderTree($('#listSearch').value);});
+  $('#openPendingReview')?.addEventListener('click',()=>openImportReview('pending'));
+  $('#openLastImport')?.addEventListener('click',()=>openImportReview(state.lastImportBatchId));
   $('#newList').onclick=openNewListModal;
   $('#importFile').onclick=()=>$('#filePicker').click(); $('#filePicker').onchange=e=>importFiles([...e.target.files]);
   $('#importFolder').onclick=()=>{const picker=$('#folderPicker');if('webkitdirectory' in picker){picker.click();}else{toast('Dieser Browser kann keinen ganzen Ordner auswählen. Bitte mehrere Dateien markieren.');$('#filePicker').click();}}; $('#folderPicker').onchange=e=>importFiles([...e.target.files],true);
@@ -452,16 +502,17 @@ function parseEditorItems(L,text,syllSep){
   return lines.map((raw,i)=>{const prev=old[i],source=raw.trim();if(syllSep&&source.includes(syllSep)){const syllables=source.split(syllSep).map(x=>x.trim()).filter(Boolean);return {id:prev?.id||uid(`i${i}`),text:syllables.join(''),syllables,sourceText:source};}return {id:prev?.id||uid(`i${i}`),text:source,sourceText:source};});
 }
 function gameTagCheckboxes(selected){return Object.entries(LIST_GAME_LABELS).map(([id,label])=>`<label class="game-tag-check"><input type="checkbox" value="${id}" ${selected.includes(id)?'checked':''}><span>${esc(label)}</span></label>`).join('');}
-function openListEditor(sourceList){
+function openListEditor(sourceList,returnReviewScope=null){
   const L=editListTarget(sourceList),selected=listGameTags(L),kind=L.kind||'list';
   openModal(`<div class="modal-head"><div><div class="eyebrow">Liste bearbeiten</div><h2>${esc(L.title)}</h2></div><button class="icon-btn" data-close-modal>×</button></div>
     <div class="form-row"><div class="field grow"><label>Listenname</label><input id="leTitle" value="${esc(L.title)}"></div><div class="field"><label>Typ</label><select id="leKind"><option value="list">Normale Liste</option><option value="pair">A/B-Paare</option><option value="choiceStory">Auswahlgeschichte</option></select></div><div class="field"><label>Silbentrenner</label><input id="leSyllSep" value="${esc(L.syllableSeparator||'')}" placeholder="z. B. -" maxlength="3"></div></div>
     <div class="section"><div class="eyebrow">In welchen Übungen soll die Liste auftauchen?</div><div class="game-tag-grid" id="leGameTags">${gameTagCheckboxes(selected)}</div><p class="small muted">Diese Zuordnung kannst du jederzeit ändern. So zeigt ein Spiel später nur passende Listen an.</p></div>
     <div class="field section"><label>Einträge ${kind==='pair'?'· pro Zeile A | B':'· ein Eintrag pro Zeile'}</label><textarea id="leText" class="list-editor-text">${esc(listEditorText(L))}</textarea></div>
-    <div class="modal-foot"><button class="soft-btn" id="leDownload">Bearbeitete Liste exportieren</button><button class="primary-btn" id="leSave">Änderungen speichern</button></div>`);
+    <div class="modal-foot">${returnReviewScope?`<button class="soft-btn" id="leBackReview">← Importprüfung</button>`:''}<button class="soft-btn" id="leDownload">Bearbeitete Liste exportieren</button><button class="primary-btn" id="leSave">Änderungen speichern</button></div>`);
   $('#leKind').value=kind;
-  $('#leSave').onclick=()=>{L.title=$('#leTitle').value.trim()||L.title;L.kind=$('#leKind').value;L.syllableSeparator=$('#leSyllSep').value.trim();L.items=parseEditorItems(L,$('#leText').value,L.syllableSeparator);rebuildListPairs(L);L.gameTags=$$('#leGameTags input:checked').map(x=>x.value);if(!L.gameTags.includes('session'))L.gameTags.unshift('session');saveState();session=null;game={};closeModal();renderLists();toast('Liste aktualisiert');};
+  $('#leSave').onclick=()=>{L.title=$('#leTitle').value.trim()||L.title;L.kind=$('#leKind').value;L.syllableSeparator=$('#leSyllSep').value.trim();L.items=parseEditorItems(L,$('#leText').value,L.syllableSeparator);rebuildListPairs(L);L.gameTags=$$('#leGameTags input:checked').map(x=>x.value);if(!L.gameTags.includes('session'))L.gameTags.unshift('session');if(L.review){L.review.status='checked';L.review.checkedAt=new Date().toISOString();}saveState();session=null;game={};closeModal();renderLists();toast('Liste aktualisiert');if(returnReviewScope)setTimeout(()=>openImportReview(returnReviewScope),30);};
   $('#leDownload').onclick=()=>{const txt=$('#leText').value;downloadBlob(`${safeFilename($('#leTitle').value||L.title)}.txt`,new Blob([txt],{type:'text/plain;charset=utf-8'}));};
+  $('#leBackReview')?.addEventListener('click',()=>{closeModal();renderLists();setTimeout(()=>openImportReview(returnReviewScope),20);});
 }
 function openItemEditor(sourceList,index){
   const L=editListTarget(sourceList),it=L.items?.[index];if(!it)return;
@@ -523,28 +574,78 @@ async function readFileText(file){
   if(buf.byteLength>=2){const u=new Uint8Array(buf);if(u[0]===0xff&&u[1]===0xfe)return new TextDecoder('utf-16le').decode(buf);if(u[0]===0xfe&&u[1]===0xff)return new TextDecoder('utf-16be').decode(buf);}
   try{return new TextDecoder('utf-8',{fatal:true}).decode(buf);}catch{return new TextDecoder('windows-1252').decode(buf);}
 }
+function importSeparatorLabel(sep,clean=''){
+  if(sep==='\t')return 'TAB';
+  if(sep)return sep;
+  return String(clean||'').replace(/\r/g,'').split('\n').filter(x=>x.trim()).length>1?'Zeilen':'Auto';
+}
+function createImportReview(L,{batchId,clean='',separator='',warnings=[]}={}){
+  const notes=[...warnings];
+  if((L.items||[]).length<2)notes.push('Nur ein Eintrag erkannt.');
+  if(L.kind==='pair'&&(L.items||[]).length%2!==0)notes.push('Ungerade Anzahl für A/B-Paare.');
+  if((L.items||[]).some(it=>String(it.text||'').length>260))notes.push('Mindestens ein sehr langer Eintrag – Trennung prüfen.');
+  let confidence='high';
+  if(separator==='-'||L.kind==='pair')confidence='medium';
+  if(notes.length)confidence='low';
+  return {status:notes.length?'warning':'new',batchId,importedAt:new Date().toISOString(),confidence,separator:importSeparatorLabel(separator,clean),warnings:[...new Set(notes)]};
+}
+function openImportReview(scope=state.lastImportBatchId||'pending'){
+  const batch=scope&&scope!=='pending'?(state.importReviewBatches||[]).find(b=>b.id===scope):null;
+  const ids=batch?batch.listIds||[]:state.userLists.filter(listNeedsReview).map(L=>L.id);
+  const target=ids.map(id=>state.userLists.find(L=>L.id===id)).filter(Boolean);
+  let filter='all';
+  openModal('<div id="importReviewRoot"></div>','import-review-modal');
+  $('.modal-backdrop').onclick=e=>{if(e.target.classList.contains('modal-backdrop')){closeModal();renderLists();}};
+  const draw=()=>{
+    const pendingCount=target.filter(listNeedsReview).length,warningCount=target.filter(L=>L.review?.status==='warning').length,checkedCount=target.filter(L=>L.review?.status==='checked').length;
+    let shown=target;
+    if(filter==='pending')shown=target.filter(listNeedsReview);
+    if(filter==='warning')shown=target.filter(L=>L.review?.status==='warning');
+    if(filter==='checked')shown=target.filter(L=>L.review?.status==='checked');
+    const root=$('#importReviewRoot');if(!root)return;
+    root.innerHTML=`<div class="modal-head"><div><div class="eyebrow">${batch?'Letzter Import':'Importkontrolle'}</div><h2>${esc(batch?.title||'Ungeprüfte Listen')}</h2><p class="muted">${target.length} Listen · ${pendingCount} noch zu prüfen${warningCount?` · ${warningCount} mit Hinweis`:''}</p></div><button class="icon-btn" data-close-review>×</button></div>
+      <div class="import-review-summary"><button class="review-filter ${filter==='all'?'active':''}" data-review-filter="all">Alle <strong>${target.length}</strong></button><button class="review-filter ${filter==='pending'?'active':''}" data-review-filter="pending">Ungeprüft <strong>${pendingCount}</strong></button><button class="review-filter ${filter==='warning'?'active':''}" data-review-filter="warning">Warnungen <strong>${warningCount}</strong></button><button class="review-filter ${filter==='checked'?'active':''}" data-review-filter="checked">Geprüft <strong>${checkedCount}</strong></button></div>
+      ${batch?.failed?.length?`<div class="error-banner"><strong>${batch.failed.length} Dateien konnten nicht gelesen werden.</strong><br>${batch.failed.slice(0,8).map(x=>`${esc(x.name)} · ${esc(x.reason)}`).join('<br>')}${batch.failed.length>8?'<br>…':''}</div>`:''}
+      <div class="import-review-table"><div class="import-review-head"><span>Liste / Ordner</span><span>Typ</span><span>Trennung</span><span>Einträge</span><span>Übungen</span><span>Erkennung</span><span>Aktion</span></div>
+      ${shown.length?shown.map(L=>{const r=L.review||{},tags=listGameTags(L).filter(x=>x!=='session');return `<div class="import-review-row ${esc(r.status||'')}"><div class="review-list-main"><strong>${esc(L.title)}</strong><small>${esc(L.category||'Eigene Listen')}</small>${r.warnings?.length?`<small class="review-warning-text">${r.warnings.map(esc).join(' · ')}</small>`:''}</div><div data-label="Typ">${esc(listKindLabel(L))}</div><div data-label="Trennung"><code>${esc(r.separator||'–')}</code></div><div data-label="Einträge">${L.items?.length||0}</div><div data-label="Übungen" class="review-game-cell">${tags.length?tags.slice(0,5).map(t=>`<span>${esc(LIST_GAME_LABELS[t]||t)}</span>`).join(''):'<span>Wortanzeige</span>'}</div><div data-label="Erkennung"><span class="review-confidence ${esc(r.confidence||'unknown')}">${esc(confidenceLabel(r.confidence))}</span><br><span class="list-review-pill ${esc(r.status||'new')}">${esc(listReviewStatusLabel(L)||'NEU')}</span></div><div class="review-row-actions">${r.status==='checked'?`<button class="soft-btn compact-btn" data-review-reopen="${esc(L.id)}">Nochmal prüfen</button>`:`<button class="review-done-btn compact-btn" data-review-done="${esc(L.id)}">✓ Geprüft</button>`}<button class="soft-btn compact-btn" data-review-edit="${esc(L.id)}">Bearbeiten</button></div></div>`}).join(''):`<div class="import-review-empty"><strong>Für diesen Filter ist nichts mehr offen.</strong><span>Du kannst das Fenster schließen oder einen anderen Filter wählen.</span></div>`}</div>
+      <div class="modal-foot import-review-foot"><span class="muted small">Prüfstatus, Ordnerzustand und Zuordnungen werden im WortZeit-Backup mitgesichert.</span>${pendingCount?`<button class="review-done-btn" id="reviewAllDone">✓ Alle ${pendingCount} als geprüft markieren</button>`:''}<button class="primary-btn" data-close-review>Fertig</button></div>`;
+    $$('[data-close-review]').forEach(b=>b.onclick=()=>{closeModal();renderLists();});
+    $$('[data-review-filter]').forEach(b=>b.onclick=()=>{filter=b.dataset.reviewFilter;draw();});
+    $$('[data-review-done]').forEach(b=>b.onclick=()=>{const L=state.userLists.find(x=>x.id===b.dataset.reviewDone);if(L)markListReviewed(L,true);draw();});
+    $$('[data-review-reopen]').forEach(b=>b.onclick=()=>{const L=state.userLists.find(x=>x.id===b.dataset.reviewReopen);if(L)markListReviewed(L,false);draw();});
+    $$('[data-review-edit]').forEach(b=>b.onclick=()=>{const L=state.userLists.find(x=>x.id===b.dataset.reviewEdit);if(!L)return;state.currentListId=L.id;saveState();closeModal();renderLists();setTimeout(()=>openListEditor(L,scope),20);});
+    $('#reviewAllDone')?.addEventListener('click',()=>{target.filter(listNeedsReview).forEach(L=>{L.review.status='checked';L.review.checkedAt=new Date().toISOString();});saveState();draw();toast('Import als geprüft markiert');});
+  };
+  draw();
+}
 async function importFiles(files,folder=false){
-  let imported=0; const patientMap=new Map(),failed=[];
+  let imported=0; const patientMap=new Map(),failed=[],batchId=uid('import'),batchListIds=[];
   for(const file of files){
     const lower=file.name.toLowerCase(); if(!/\.(rtf|txt|csv|json|odt|ods)$/.test(lower))continue;
     try{
       const txt=/\.od[ts]$/.test(lower)?await readOdtText(file):await readFileText(file);
+      const rel=file.webkitRelativePath||file.name;
       if(lower.endsWith('.json')){
         const obj=JSON.parse(txt.replace(/^\uFEFF/,''));
-        if(obj?.format==='wortzeit-list'&&obj.list){const L={...obj.list,id:uid('list'),bundled:false};state.userLists.push(L);imported++;continue;}
+        if(obj?.format==='wortzeit-list'&&obj.list){const L={...obj.list,id:uid('list'),bundled:false,sourcePath:obj.list.sourcePath||rel};L.review=createImportReview(L,{batchId,clean:'',separator:'WortZeit'});state.userLists.push(L);batchListIds.push(L.id);imported++;continue;}
       }
       const clean=lower.endsWith('.rtf')?decodeRtfBrowser(txt):txt;
       const likelySep=detectImportSeparator(clean,lower);
       const pieces=parsePlainList(clean,likelySep).filter(x=>!/^\*?Riched/i.test(x));
       if(!pieces.length)continue;
-      const rel=file.webkitRelativePath||file.name;const pathParts=rel.split('/');const idx=pathParts.findIndex(x=>x.toLowerCase()==='patienten');let category='Importiert';
+      const pathParts=rel.split('/');const idx=pathParts.findIndex(x=>x.toLowerCase()==='patienten');let category='Importiert';
       if(pathParts.length>1) category=pathParts.slice(0,-1).join(' / ');
-      const L=makeUserList(file.name.replace(/\.[^.]+$/,''),pieces,category,rel);if(/(^|\/)memory(\/|$)|memo/i.test(rel)){L.kind='pair';L.pairs=[];for(let i=0;i<pieces.length-1;i+=2)L.pairs.push({id:uid('pair'),a:pieces[i],b:pieces[i+1]});}if(/feuerwerk|geschichte.*auswahl|auswahl.*geschichte/i.test(`${L.title} ${rel}`)&&L.items.length%5===0)L.kind='choiceStory';L.gameTags=inferListGameTags(L);state.userLists.push(L);imported++;
+      const L=makeUserList(file.name.replace(/\.[^.]+$/,''),pieces,category,rel);
+      if(/(^|\/)memory(\/|$)|memo/i.test(rel)){L.kind='pair';L.pairs=[];for(let i=0;i<pieces.length-1;i+=2)L.pairs.push({id:uid('pair'),a:pieces[i],b:pieces[i+1]});}
+      if(/feuerwerk|geschichte.*auswahl|auswahl.*geschichte/i.test(`${L.title} ${rel}`)&&L.items.length%5===0)L.kind='choiceStory';
+      L.gameTags=inferListGameTags(L);L.review=createImportReview(L,{batchId,clean,separator:likelySep});state.userLists.push(L);batchListIds.push(L.id);imported++;
       if(idx>=0&&pathParts[idx+1]){const patientName=pathParts[idx+1];if(!patientMap.has(patientName))patientMap.set(patientName,[]);patientMap.get(patientName).push(L.id);}
     }catch(e){console.warn('Import failed',file.name,e);failed.push({name:file.name,reason:e?.message||'nicht lesbar'});}
   }
   patientMap.forEach((ids,name)=>{let p=state.patients.find(x=>x.name===name);if(!p){p={id:uid('patient'),name,listIds:[],note:''};state.patients.push(p);}p.listIds=[...new Set([...(p.listIds||[]),...ids])];});
-  saveState();renderLists();toast(`${imported} Datei${imported===1?'':'en'} importiert${failed.length?` · ${failed.length} nicht gelesen`:''}`);if(imported||failed.length){setTimeout(()=>helpModal('Import abgeschlossen',`<p><strong>${imported} Liste${imported===1?'':'n'} wurden übernommen.</strong></p><p>WortZeit hat automatisch eingeschätzt, für welche Spiele die Listen geeignet sind. Öffne eine Liste und wähle <strong>Liste bearbeiten</strong>, wenn du diese Zuordnung ändern möchtest.</p><p>ODT-/ODS-, RTF-, TXT- und CSV-Dateien dürfen unterschiedliche Trennzeichen verwenden – jede Datei wird einzeln ausgewertet.</p>${failed.length?`<div class="error-banner"><strong>${failed.length} Datei${failed.length===1?'':'en'} konnten in diesem Browser nicht gelesen werden.</strong><br>${failed.slice(0,6).map(x=>`${esc(x.name)} · ${esc(x.reason)}`).join('<br>')}${failed.length>6?'<br>…':''}</div><p class="small muted">Bei OpenDocument-Dateien kann ein älterer Browser die ZIP-Dekompression nicht unterstützen. In diesem Fall dieselben Dateien mit einem aktuellen Browser importieren oder als RTF/TXT speichern.</p>`:''}`),80);}
+  if(imported||failed.length){const batch={id:batchId,createdAt:new Date().toISOString(),title:folder?'Ordnerimport':'Dateiimport',listIds:batchListIds,failed};state.importReviewBatches=[batch,...(state.importReviewBatches||[]).filter(b=>b.id!==batchId)].slice(0,30);state.lastImportBatchId=batchId;state.listFolderOpen={};}
+  saveState();renderLists();toast(`${imported} Datei${imported===1?'':'en'} importiert${failed.length?` · ${failed.length} nicht gelesen`:''}`);
+  if(imported||failed.length)setTimeout(()=>openImportReview(batchId),80);
 }
 
 function openRecordingBank(L){
@@ -708,17 +809,22 @@ function resolveMemoryPair(){
 }
 
 // ---------- Sorting puzzles ----------
-function newSortingPuzzle(next=true){
+function newSortingPuzzle(direction=1){
   if(!game.sortOrder||!game.sortOrder.length)game.sortOrder=shuffle(DATA.sortingPuzzles.map((_,i)=>i));
-  if(game.sortPos==null)game.sortPos=0;else if(next)game.sortPos=(game.sortPos+1)%game.sortOrder.length;
+  if(game.sortPos==null)game.sortPos=0;
+  else{
+    const delta=direction===false?0:direction===true?1:Number(direction)||0;
+    if(delta)game.sortPos=(game.sortPos+delta+game.sortOrder.length)%game.sortOrder.length;
+  }
   const p=DATA.sortingPuzzles[game.sortOrder[game.sortPos]]; game.sort={p,placed:p.attributes.map(()=>Array(p.solutions.length).fill(null)),selected:null,message:''};
 }
 function renderSorting(){
   if(!game.sort)newSortingPuzzle(false);const g=game.sort,p=g.p,cols=p.solutions.length;
   const candidateGroups=p.attributes.map((attr,ai)=>({attr,values:shuffle(p.solutions.map(r=>r[ai]))}));
   if(!g.candidateGroups)g.candidateGroups=candidateGroups;
-  const controls=`<div class="score-box">Punkte ${state.stats.sortScore}</div><button class="soft-btn" id="sortReset">Reset</button><button class="soft-btn" id="sortNext">Nächstes</button><button class="primary-btn game-check-btn" data-game-primary id="sortCheck">Prüfen</button>`;
-  $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="game-shell">${gameHeader(p.title,`${esc(p.question)}${p.difficulty?` · Schwierigkeit ${p.difficulty}`:''}`,controls)}<div class="game-board"><div class="sort-layout"><div class="card"><h3>Hinweise</h3><ol class="hint-list">${p.hints.map(h=>`<li>${esc(h)}</li>`).join('')}</ol></div><div><div class="sort-grid">${p.attributes.map((attr,ai)=>`<div class="sort-row" style="--cols:${cols}"><div class="sort-label">${esc(attr)}</div>${g.placed[ai].map((v,ci)=>`<button class="sort-cell" data-cell="${ai}:${ci}" draggable="${v!=null?'true':'false'}">${esc(v||'')}</button>`).join('')}</div>`).join('')}</div>${g.message?`<div class="section ${g.message==='Richtig!'?'success-banner':'error-banner'}">${esc(g.message)}</div>`:''}</div><div class="card"><h3>Auswahl</h3>${g.candidateGroups.map((cg,ai)=>`<div class="candidate-group"><h4>${esc(cg.attr)}</h4><div class="candidate-bank">${cg.values.map((v,vi)=>{const occurrenceBefore=cg.values.slice(0,vi).filter(x=>x===v).length;const usedCount=g.placed[ai].filter(x=>x===v).length;const used=usedCount>occurrenceBefore;const sel=g.selected&&g.selected.ai===ai&&g.selected.vi===vi;return `<button class="candidate ${sel?'selected':''} ${used?'used':''}" data-candidate="${ai}:${vi}" draggable="${used?'false':'true'}" ${used?'disabled':''}>${esc(v)}</button>`}).join('')}</div></div>`).join('')}</div></div></div></div>`;
+  const controls=`<div class="score-box">Punkte ${state.stats.sortScore}</div><button class="soft-btn" id="sortPrev" title="Vorherige Aufgabe">← Aufgabe</button><button class="soft-btn" id="sortReset">Reset</button><button class="soft-btn" id="sortNext">Nächstes</button>`;
+  const primary=`<button class="primary-btn game-check-btn" data-game-primary id="sortCheck">Prüfen</button>`;
+  $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="game-shell">${gameHeader(p.title,`${esc(p.question)}${p.difficulty?` · Schwierigkeit ${p.difficulty}`:''}`,controls,primary)}<div class="game-board"><div class="sort-layout"><div class="card sort-hints"><h3>Hinweise</h3><ol class="hint-list">${p.hints.map(h=>`<li>${esc(h)}</li>`).join('')}</ol></div><div class="sort-interaction"><div class="card sort-targets"><div class="sort-grid">${p.attributes.map((attr,ai)=>`<div class="sort-row" style="--cols:${cols}"><div class="sort-label">${esc(attr)}</div>${g.placed[ai].map((v,ci)=>`<button class="sort-cell" data-cell="${ai}:${ci}" draggable="${v!=null?'true':'false'}">${esc(v||'')}</button>`).join('')}</div>`).join('')}</div>${g.message?`<div class="sort-message ${g.message==='Richtig!'?'success-banner':'error-banner'}">${esc(g.message)}</div>`:''}</div><div class="card sort-candidates"><h3>Auswahl</h3><div class="sort-candidate-groups">${g.candidateGroups.map((cg,ai)=>`<div class="candidate-group"><h4>${esc(cg.attr)}</h4><div class="candidate-bank">${cg.values.map((v,vi)=>{const occurrenceBefore=cg.values.slice(0,vi).filter(x=>x===v).length;const usedCount=g.placed[ai].filter(x=>x===v).length;const used=usedCount>occurrenceBefore;const sel=g.selected&&g.selected.ai===ai&&g.selected.vi===vi;return `<button class="candidate ${sel?'selected':''} ${used?'used':''}" data-candidate="${ai}:${vi}" draggable="${used?'false':'true'}" ${used?'disabled':''}>${esc(v)}</button>`}).join('')}</div></div>`).join('')}</div></div></div></div></div></div>`;
   bindPlanBar();bindGameChrome();
   const assign=(ai,vi,ci)=>{if(ai<0||vi<0||ci<0)return;const value=g.candidateGroups[ai]?.values[vi];if(value==null)return;g.placed[ai][ci]=value;g.selected=null;g.message='';renderSorting();};
   $$('[data-candidate]').forEach(b=>{b.onclick=()=>{const [ai,vi]=b.dataset.candidate.split(':').map(Number);g.selected={ai,vi};renderSorting();};b.ondragstart=e=>e.dataTransfer.setData('text/plain',`candidate:${b.dataset.candidate}`);});
@@ -729,14 +835,15 @@ function renderSorting(){
     b.ondragover=e=>{e.preventDefault();b.classList.add('drag-over');};b.ondragleave=()=>b.classList.remove('drag-over');
     b.ondrop=e=>{e.preventDefault();b.classList.remove('drag-over');const raw=e.dataTransfer.getData('text/plain');if(raw.startsWith('candidate:')){const [,a,v]=raw.split(':');if(+a===ai)assign(ai,+v,ci);else toast('Dieser Begriff gehört in eine andere Zeile.');}else if(raw.startsWith('cell:')){const [,a,c]=raw.split(':');if(+a===ai&&+c!==ci){[g.placed[ai][+c],g.placed[ai][ci]]=[g.placed[ai][ci],g.placed[ai][+c]];g.message='';renderSorting();}}};
   });
+  $('#sortPrev').onclick=()=>{newSortingPuzzle(-1);renderSorting();};
   $('#sortReset').onclick=()=>{g.placed=p.attributes.map(()=>Array(cols).fill(null));g.selected=null;g.message='';renderSorting();};
-  $('#sortNext').onclick=()=>{newSortingPuzzle(true);renderSorting();};
+  $('#sortNext').onclick=()=>{newSortingPuzzle(1);renderSorting();};
   $('#sortCheck').onclick=()=>{let ok=true;for(let ai=0;ai<p.attributes.length;ai++)for(let ci=0;ci<cols;ci++)if(g.placed[ai][ci]!==p.solutions[ci][ai])ok=false;g.message=ok?'Richtig!':'Noch nicht richtig.';if(ok){state.stats.sortScore++;saveState();}renderSorting();};
 }
 
 // ---------- Image stories ----------
 function storyDisplayTitle(story){return state.storyTitleOverrides?.[story.id]||`Bildergeschichte ${String(story.sequenceNumber||1).padStart(2,'0')}`;}
-function newStory(next=true){if(!game.storyOrder||!game.storyOrder.length)game.storyOrder=shuffle(DATA.imageStories.map((_,i)=>i));if(game.storyPos==null)game.storyPos=0;else if(next)game.storyPos=(game.storyPos+1)%game.storyOrder.length;const s=DATA.imageStories[game.storyOrder[game.storyPos]];let order=shuffle([0,1,2,3]);if(order.join('')==='0123')order=[1,0,3,2];game.story={s,order,selected:null,message:''};}
+function newStory(direction=1){if(!game.storyOrder||!game.storyOrder.length)game.storyOrder=shuffle(DATA.imageStories.map((_,i)=>i));if(game.storyPos==null)game.storyPos=0;else{const delta=direction===false?0:direction===true?1:Number(direction)||0;if(delta)game.storyPos=(game.storyPos+delta+game.storyOrder.length)%game.storyOrder.length;}const s=DATA.imageStories[game.storyOrder[game.storyPos]];let order=shuffle([0,1,2,3]);if(order.join('')==='0123')order=[1,0,3,2];game.story={s,order,selected:null,message:''};}
 function fitStoryBoard(){
   const board=$('body.game-story .story-board'),grid=$('body.game-story .story-grid');
   if(!board||!grid)return;
@@ -750,12 +857,14 @@ function storyMarkComplete(g){
 function storyCheckAuto(g){if(g.order.join('')==='0123')storyMarkComplete(g);}
 function renderStory(){
   if(!game.story)newStory(false);const g=game.story,title=storyDisplayTitle(g.s);
-  const controls=g.complete?`<div class="score-box">Punkte ${state.stats.storyScore}</div><button class="soft-btn" id="storyReset">Mischen</button><button class="primary-btn game-check-btn" data-game-primary id="storyContinue">Weiter</button>`:`<div class="score-box">Punkte ${state.stats.storyScore}</div><button class="soft-btn" id="storyReset">Mischen</button><button class="primary-btn game-check-btn" data-game-primary id="storyCheck">Prüfen</button>`;
-  $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="game-shell">${gameHeader('Bildergeschichte',`<strong>${esc(title)}</strong> · Bringe die vier Bilder in die richtige Reihenfolge.`,controls)}<div class="game-board story-board"><div class="story-grid">${g.order.map((piece,pos)=>`<button class="story-tile ${g.selected===pos?'selected':''}" draggable="true" data-story-pos="${pos}"><img src="${esc(g.s.pieces[piece])}" alt="Bild ${pos+1}"></button>`).join('')}</div>${g.message?`<div class="game-floating-message ${g.complete?'success-banner':'error-banner'}">${esc(g.message)}</div>`:''}</div></div>`;
+  const controls=`<div class="score-box">Punkte ${state.stats.storyScore}</div><button class="soft-btn" id="storyPrev" title="Vorherige Bildergeschichte">← Aufgabe</button><button class="soft-btn" id="storyReset">Mischen</button>`;
+  const primary=g.complete?`<button class="primary-btn game-check-btn" data-game-primary id="storyContinue">Weiter</button>`:`<button class="primary-btn game-check-btn" data-game-primary id="storyCheck">Prüfen</button>`;
+  $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="game-shell">${gameHeader('Bildergeschichte',`<strong>${esc(title)}</strong> · Bringe die vier Bilder in die richtige Reihenfolge.`,controls,primary)}<div class="game-board story-board"><div class="story-grid">${g.order.map((piece,pos)=>`<button class="story-tile ${g.selected===pos?'selected':''}" draggable="true" data-story-pos="${pos}"><img src="${esc(g.s.pieces[piece])}" alt="Bild ${pos+1}"></button>`).join('')}</div>${g.message?`<div class="game-floating-message ${g.complete?'success-banner':'error-banner'}">${esc(g.message)}</div>`:''}</div></div>`;
   bindPlanBar();bindGameChrome();requestAnimationFrame(fitStoryBoard);
   $$('[data-story-pos]').forEach(b=>{b.onclick=()=>selectStory(+b.dataset.storyPos);b.ondragstart=e=>e.dataTransfer.setData('text/plain',b.dataset.storyPos);b.ondragover=e=>{e.preventDefault();b.classList.add('drag-over')};b.ondragleave=()=>b.classList.remove('drag-over');b.ondrop=e=>{e.preventDefault();b.classList.remove('drag-over');if(g.complete)return;const a=+e.dataTransfer.getData('text/plain'),c=+b.dataset.storyPos;if(Number.isFinite(a)&&a!==c){[g.order[a],g.order[c]]=[g.order[c],g.order[a]];g.message='';storyCheckAuto(g);renderStory();}};});
+  $('#storyPrev').onclick=()=>{newStory(-1);renderStory();};
   $('#storyReset').onclick=()=>{g.order=shuffle([0,1,2,3]);if(g.order.join('')==='0123')g.order=[1,0,3,2];g.selected=null;g.message='';g.complete=false;renderStory();};
-  $('#storyContinue')?.addEventListener('click',()=>{newStory(true);renderStory();});
+  $('#storyContinue')?.addEventListener('click',()=>{newStory(1);renderStory();});
   $('#storyCheck')?.addEventListener('click',()=>{const ok=g.order.join('')==='0123';if(ok)storyMarkComplete(g);else g.message='Noch nicht richtig.';renderStory();});
 }
 function selectStory(pos){const g=game.story;if(g.complete)return;if(g.selected==null){g.selected=pos;}else if(g.selected===pos){g.selected=null;}else{[g.order[g.selected],g.order[pos]]=[g.order[pos],g.order[g.selected]];g.selected=null;g.message='';storyCheckAuto(g);}renderStory();}
@@ -766,14 +875,19 @@ function wheelWords(){
   const words=[...new Set(items)];return words.length?words:defaultList.items.map(x=>x.text);
 }
 function randomWheelWord(g,avoid=''){if(!g?.words?.length)return '';let w=g.words[Math.floor(Math.random()*g.words.length)];for(let i=0;i<6&&w===avoid&&g.words.length>1;i++)w=g.words[Math.floor(Math.random()*g.words.length)];return w;}
-function initWheel(){const words=wheelWords();const g={spinning:false,raf:null,speed:game.wheelSpeed||38,fontScale:game.wheelFontScale||125,rows:[],selected:[],words,offset:0,lastFrame:0,materialKey:activeMaterialKey()};for(let i=0;i<12;i++)g.rows.push(randomWheelWord(g,g.rows.at(-1)));game.wheel=g;}
+function initWheel(){const words=wheelWords();const g={spinning:false,raf:null,speed:game.wheelSpeed||38,fontScale:game.wheelFontScaleV2??50,rows:[],selected:[],words,offset:0,lastFrame:0,materialKey:activeMaterialKey()};for(let i=0;i<12;i++)g.rows.push(randomWheelWord(g,g.rows.at(-1)));game.wheel=g;}
 function wheelRowHeight(){return $('.wheel-row')?.getBoundingClientRect().height||96;}
 function fitWheelGeometry(){
   const g=game.wheel,stage=$('#wheelStage');if(!g||!stage)return;
-  const rowH=clamp(Math.floor(stage.clientHeight/5),66,176);stage.style.setProperty('--wheel-row-h',`${rowH}px`);fitWheelRows();updateWheelTransform();
+  // 50% intentionally reproduces the readable v0.7.1 size. Larger settings
+  // reduce the number of visible bands, so the type can genuinely grow.
+  const pct=clamp(Number(g.fontScale)||50,25,150);
+  const visibleRows=clamp(5-((pct-50)/100)*2.2,2.8,5.8);
+  const rowH=clamp(Math.floor(stage.clientHeight/visibleRows),52,300);
+  stage.style.setProperty('--wheel-row-h',`${rowH}px`);fitWheelRows();updateWheelTransform();
 }
 function fitWheelRows(){
-  const g=game.wheel;$$('.wheel-row').forEach(el=>{const rowH=el.getBoundingClientRect().height||96;const scale=clamp((g?.fontScale||125)/125,.68,1.6);const maxVertical=Math.floor(rowH*.90),base=clamp(Math.round(rowH*.80*scale),34,maxVertical),min=Math.max(24,Math.floor(rowH*.40));let size=base;el.style.fontSize=`${size}px`;while(size>min&&el.scrollWidth>el.clientWidth-36){size-=2;el.style.fontSize=`${size}px`;}});
+  const g=game.wheel;$$('.wheel-row').forEach(el=>{const rowH=el.getBoundingClientRect().height||96;const pct=clamp(Number(g?.fontScale)||50,25,150);const relative=clamp(pct/50,.5,3);const maxVertical=Math.floor(rowH*.92),base=clamp(Math.round(rowH*.78*Math.min(relative,1.18)),24,maxVertical),min=Math.max(20,Math.floor(rowH*.34));let size=base;el.style.fontSize=`${size}px`;while(size>min&&el.scrollWidth>el.clientWidth-36){size-=2;el.style.fontSize=`${size}px`;}});
 }
 function updateWheelRows(){const g=game.wheel;if(!g)return;$$('.wheel-row').forEach((el,i)=>{el.textContent=g.rows[i]||'';});fitWheelRows();}
 function updateWheelTransform(){const g=game.wheel,track=$('.wheel-track');if(!g||!track)return;const h=wheelRowHeight();track.style.transform=`translate3d(0,${g.offset-h}px,0)`;}
@@ -792,21 +906,29 @@ function moveWheelSelected(from,to){
 function renderWheel(){
   if(!game.wheel||game.wheel.materialKey!==activeMaterialKey())initWheel();const g=game.wheel;
   const controls=`<button class="soft-btn" id="wheelReset">Reset</button>`;
-  $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="game-shell">${gameHeader('Wortwalze','Die große Walze läuft von oben nach unten. Beim Loslassen wird das Wort unter dem Zeiger übernommen.',controls)}<div class="game-board"><div class="wheel-selected">${Array.from({length:6},(_,i)=>`<button class="wheel-slot ${g.selected[i]?'filled':''}" data-selected-slot="${i}" draggable="${g.selected[i]?'true':'false'}" title="Ziehen zum Umsortieren · anklicken zum Entfernen">${esc(g.selected[i]||'')}</button>`).join('')}</div><div class="wheel-stage" id="wheelStage" aria-label="Wortwalze"><div class="wheel-track" style="transform:translate3d(0,calc(${g.offset}px - 84px),0)">${g.rows.map((w,i)=>`<div class="wheel-row" data-wheel-row="${i}">${esc(w)}</div>`).join('')}</div></div><div class="wheel-controls"><div class="field"><label>Drehgeschwindigkeit</label><input id="wheelSpeed" type="range" min="1" max="100" value="${g.speed}"></div><div class="field"><label>Schriftgröße</label><input id="wheelFont" type="range" min="80" max="200" value="${g.fontScale}"></div><button class="primary-btn wheel-spin-btn" id="wheelSpin">${g.spinning?'STOPP':'DREHEN'}</button></div></div></div>`;
+  $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="game-shell">${gameHeader('Wortwalze','Die große Walze läuft von oben nach unten. Beim Loslassen wird das Wort unter dem Zeiger übernommen.',controls)}<div class="game-board"><div class="wheel-selected">${Array.from({length:6},(_,i)=>`<button class="wheel-slot ${g.selected[i]?'filled':''}" data-selected-slot="${i}" draggable="${g.selected[i]?'true':'false'}" title="Ziehen zum Umsortieren · anklicken zum Entfernen">${esc(g.selected[i]||'')}</button>`).join('')}</div><div class="wheel-stage" id="wheelStage" aria-label="Wortwalze"><div class="wheel-track" style="transform:translate3d(0,calc(${g.offset}px - 84px),0)">${g.rows.map((w,i)=>`<div class="wheel-row" data-wheel-row="${i}">${esc(w)}</div>`).join('')}</div></div><div class="wheel-controls"><div class="field"><label>Drehgeschwindigkeit</label><input id="wheelSpeed" type="range" min="1" max="100" value="${g.speed}"></div><div class="field"><label>Schriftgröße <strong id="wheelFontValue">${g.fontScale}%</strong></label><input id="wheelFont" type="range" min="25" max="150" step="5" value="${g.fontScale}"></div><button class="primary-btn wheel-spin-btn" id="wheelSpin">${g.spinning?'STOPP':'DREHEN'}</button></div></div></div>`;
   bindPlanBar();bindGameChrome();requestAnimationFrame(fitWheelGeometry);
   $('#wheelSpeed').oninput=e=>{g.speed=+e.target.value;game.wheelSpeed=g.speed;};
-  $('#wheelFont').oninput=e=>{g.fontScale=+e.target.value;game.wheelFontScale=g.fontScale;fitWheelRows();};
+  $('#wheelFont').oninput=e=>{g.fontScale=+e.target.value;game.wheelFontScaleV2=g.fontScale;$('#wheelFontValue').textContent=`${g.fontScale}%`;fitWheelGeometry();};
   $('#wheelSpin').onclick=()=>g.spinning?stopWheel():startWheel();
   $('#wheelReset').onclick=()=>{if(g.raf)cancelAnimationFrame(g.raf);g.raf=null;g.spinning=false;g.selected=[];g.offset=0;g.rows=[];for(let i=0;i<12;i++)g.rows.push(randomWheelWord(g,g.rows.at(-1)));renderWheel();};
   $('#wheelStage').addEventListener('pointerup',e=>{const under=document.elementFromPoint(e.clientX,e.clientY)?.closest?.('.wheel-row');if(under&&$('#wheelStage').contains(under))addWheelWord(under.textContent.trim());});
+  let wheelPointer=null;
+  const clearWheelDragVisual=()=>$$('[data-selected-slot]').forEach(x=>x.classList.remove('drag-over','dragging'));
   $$('[data-selected-slot]').forEach(b=>{
     const i=+b.dataset.selectedSlot;
+    // Pointer-based reordering works with mouse, pen and touch and therefore
+    // does not depend on browser-specific HTML5 drag support.
+    b.onpointerdown=e=>{if(!g.selected[i])return;wheelPointer={from:i,x:e.clientX,y:e.clientY,moved:false};game.wheelJustDragged=false;b.classList.add('dragging');try{b.setPointerCapture(e.pointerId);}catch{}e.preventDefault();};
+    b.onpointermove=e=>{if(!wheelPointer||wheelPointer.from!==i)return;const dx=e.clientX-wheelPointer.x,dy=e.clientY-wheelPointer.y;if(Math.hypot(dx,dy)>7)wheelPointer.moved=true;$$('[data-selected-slot]').forEach(x=>x.classList.remove('drag-over'));if(wheelPointer.moved){const target=document.elementFromPoint(e.clientX,e.clientY)?.closest?.('[data-selected-slot]');if(target)target.classList.add('drag-over');}};
+    b.onpointerup=e=>{if(!wheelPointer||wheelPointer.from!==i)return;const state=wheelPointer;wheelPointer=null;const target=document.elementFromPoint(e.clientX,e.clientY)?.closest?.('[data-selected-slot]');clearWheelDragVisual();if(state.moved&&target){game.wheelJustDragged=true;const to=+target.dataset.selectedSlot;if(Number.isFinite(to)&&to!==state.from)moveWheelSelected(state.from,to);setTimeout(()=>{game.wheelJustDragged=false;},160);return;}if(!state.moved&&g.selected[state.from]){g.selected.splice(state.from,1);renderWheel();}};
+    b.onpointercancel=()=>{wheelPointer=null;clearWheelDragVisual();};
+    // Desktop fallback for browsers that expose native drag/drop better than pointer capture.
     b.ondragstart=e=>{if(!g.selected[i]){e.preventDefault();return;}game.wheelDragFrom=i;b.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/x-wortzeit-wheel',String(i));};
     b.ondragover=e=>{if(game.wheelDragFrom==null)return;e.preventDefault();e.dataTransfer.dropEffect='move';b.classList.add('drag-over');};
     b.ondragleave=()=>b.classList.remove('drag-over');
-    b.ondrop=e=>{e.preventDefault();b.classList.remove('drag-over');const from=Number(e.dataTransfer.getData('text/x-wortzeit-wheel'));game.wheelDragFrom=null;game.wheelJustDragged=true;setTimeout(()=>{game.wheelJustDragged=false;},120);if(Number.isFinite(from)&&from!==i)moveWheelSelected(from,i);};
-    b.ondragend=()=>{game.wheelDragFrom=null;b.classList.remove('dragging');$$('[data-selected-slot]').forEach(x=>x.classList.remove('drag-over'));};
-    b.onclick=()=>{if(game.wheelDragFrom!=null||game.wheelJustDragged)return;if(g.selected[i]){g.selected.splice(i,1);updateWheelSelected();}};
+    b.ondrop=e=>{e.preventDefault();b.classList.remove('drag-over');const from=Number(e.dataTransfer.getData('text/x-wortzeit-wheel'));game.wheelDragFrom=null;game.wheelJustDragged=true;setTimeout(()=>{game.wheelJustDragged=false;},160);if(Number.isFinite(from)&&from!==i)moveWheelSelected(from,i);};
+    b.ondragend=()=>{game.wheelDragFrom=null;clearWheelDragVisual();};
   });
 }
 
@@ -1056,7 +1178,7 @@ function renderSettings(){
     <div class="card"><button class="icon-btn card-help" data-settings-help="design" aria-label="Hilfe zu Design">?</button><h2>Design</h2><p>Wähle die Darstellung, die sich am angenehmsten lesen lässt. Die Änderung ist sofort sichtbar.</p><div class="theme-picks">${[['calm','Ruhig'],['light','Hell'],['dark','Dunkel'],['contrast','Schwarz / Gelb'],['warm','Warm']].map(([k,v])=>`<button class="theme-pick ${s.theme===k?'active':''}" data-theme-pick="${k}">${v}</button>`).join('')}</div></div>
     <div class="card"><button class="icon-btn card-help" data-settings-help="session" aria-label="Hilfe zu Sitzungsstandard">?</button><h2>Sitzungsstandard</h2><p>Diese Werte werden vorgeschlagen, wenn eine neue Wort-Sitzung beginnt.</p><div class="field"><label>Wörter gleichzeitig</label><select id="setAmount">${[1,2,3,4,5,6].map(n=>`<option>${n}</option>`).join('')}</select></div><label class="toggle"><input id="setEndless" type="checkbox"> Nach dem letzten Wort wieder von vorne beginnen</label></div>
     <div class="card"><button class="icon-btn card-help" data-settings-help="stories" aria-label="Hilfe zu Bildergeschichten">?</button><h2>Bildergeschichten</h2><p>Die Bilddateien hatten keine eindeutigen Dateinamen. Hier kannst du die richtigen Titel einmal zuordnen.</p><div class="toolbar"><button class="secondary-btn" id="storyTitles">Titel zuordnen</button></div></div>
-    <div class="card"><button class="icon-btn card-help" data-settings-help="data" aria-label="Hilfe zu Daten">?</button><h2>Daten</h2><p>Sichere deine lokal gespeicherten Listen, Patienten, Pläne und Einstellungen oder übertrage sie auf ein anderes Gerät.</p><div class="toolbar"><button class="secondary-btn" id="showIntroSettings">Kurze Einführung</button><button class="secondary-btn" id="browserCheck">Browser prüfen</button><button class="secondary-btn" id="backupState">Backup speichern</button><button class="secondary-btn" id="restoreState">Backup öffnen</button><button class="danger-btn" id="resetState">Testdaten zurücksetzen</button></div><input id="restoreStatePicker" type="file" accept=".json" hidden></div>
+    <div class="card"><button class="icon-btn card-help" data-settings-help="data" aria-label="Hilfe zu Daten">?</button><h2>Daten</h2><p>Sichere Listen, Import-Prüfstatus, Ordnerzustand, Patienten, Pläne, Einstellungen und Aufnahmen in einer einzigen WortZeit-Sicherung.</p><div class="toolbar"><button class="secondary-btn" id="showIntroSettings">Kurze Einführung</button><button class="secondary-btn" id="browserCheck">Browser prüfen</button><button class="secondary-btn" id="backupState">Backup speichern</button><button class="secondary-btn" id="restoreState">Backup öffnen</button><button class="danger-btn" id="resetState">Testdaten zurücksetzen</button></div><input id="restoreStatePicker" type="file" accept=".json" hidden></div>
   </div>`;
   $('#setLang').value=s.lang;$('#setAmount').value=s.itemsPerScreen;$('#setEndless').checked=s.endless;
   $('#setLang').onchange=e=>{s.lang=e.target.value;saveState();applyI18n();renderSettings();};
@@ -1077,25 +1199,30 @@ function renderSettings(){
     ];
     helpModal('Browser prüfen',`<p>Die Kernfunktionen laufen in modernen Browsern. Einzelne Komfortfunktionen können je nach Browser fehlen.</p><div class="browser-check-list">${checks.map(([n,ok])=>`<div class="browser-check-row"><strong>${ok?'✓':'–'} ${esc(n)}</strong><span>${ok?'verfügbar':'Fallback verwenden'}</span></div>`).join('')}</div><p class="small muted">Wenn „Ganzen Ordner auswählen“ fehlt, kannst du mehrere Dateien gleichzeitig markieren. Wenn OpenDocument fehlt, importiere ODT/ODS einmal auf einem anderen aktuellen Browser oder speichere die Datei als RTF/TXT.</p>`);
   });
-  $('#backupState').onclick=()=>downloadBlob(`WortZeit_Backup_${new Date().toISOString().slice(0,10)}.json`,new Blob([JSON.stringify({format:'wortzeit-local-backup',version:1,state},null,2)],{type:'application/json'}));
+  $('#backupState').onclick=async()=>{const btn=$('#backupState'),label=btn.textContent;btn.disabled=true;btn.textContent='Backup wird erstellt …';try{const entries=await audioAllEntries(),audio={};for(const [key,blob] of entries){if(blob instanceof Blob)audio[key]={type:blob.type||'audio/webm',data:await blobToBase64(blob)};}const payload={format:'wortzeit-local-backup',version:2,createdAt:new Date().toISOString(),state,audio};downloadBlob(`WortZeit_Backup_${new Date().toISOString().slice(0,10)}.json`,new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));toast(`Backup gespeichert · ${state.userLists.length} eigene Listen · ${Object.keys(audio).length} Aufnahmen`);}catch(err){console.warn(err);toast('Backup konnte nicht erstellt werden');}finally{btn.disabled=false;btn.textContent=label;}};
   $('#restoreState').onclick=()=>$('#restoreStatePicker').click();
   $('#restoreStatePicker').onchange=async e=>{
     const file=e.target.files?.[0];if(!file)return;
     try{
       const obj=JSON.parse((await readFileText(file)).replace(/^\uFEFF/,''));
       if(obj?.format!=='wortzeit-local-backup'||!obj.state)throw new Error('Kein WortZeit-Backup');
+      if(!confirm('Dieses Backup laden? Die lokalen WortZeit-Daten dieses Browsers werden durch den Sicherungsstand ersetzt.'))return;
       const parsed=obj.state;
-      state={...cloneData(DEFAULT_STATE),...parsed,
+      const next={...cloneData(DEFAULT_STATE),...parsed,
         settings:{...DEFAULT_STATE.settings,...(parsed.settings||{})},stats:{...DEFAULT_STATE.stats,...(parsed.stats||{})},
         userLists:Array.isArray(parsed.userLists)?parsed.userLists:[],patients:Array.isArray(parsed.patients)?parsed.patients:[],plans:Array.isArray(parsed.plans)?parsed.plans:[],
         storyTitleOverrides:parsed.storyTitleOverrides&&typeof parsed.storyTitleOverrides==='object'?parsed.storyTitleOverrides:{},
         activeListIds:Array.isArray(parsed.activeListIds)&&parsed.activeListIds.length?parsed.activeListIds:[parsed.currentListId||defaultList.id],
-        recentListIds:Array.isArray(parsed.recentListIds)?parsed.recentListIds:[]};
-      saveState();session=null;game={};applyTheme();updateHeader();renderSettings();toast('Backup geladen');
+        recentListIds:Array.isArray(parsed.recentListIds)?parsed.recentListIds:[],
+        importReviewBatches:Array.isArray(parsed.importReviewBatches)?parsed.importReviewBatches:[],lastImportBatchId:parsed.lastImportBatchId||null,
+        listFolderOpen:parsed.listFolderOpen&&typeof parsed.listFolderOpen==='object'?parsed.listFolderOpen:{},reviewMigrationVersion:Number(parsed.reviewMigrationVersion)||0};
+      migrateImportReviewState(next);
+      let restoredAudio=0;if(obj.version>=2&&obj.audio&&typeof obj.audio==='object'){await audioClearAll();for(const [key,a] of Object.entries(obj.audio)){try{await audioSet(key,base64ToBlob(a.data,a.type));restoredAudio++;}catch(err){console.warn('Audio restore failed',key,err);}}}
+      state=next;saveState();session=null;game={};applyTheme();updateHeader();renderSettings();toast(`Backup geladen · ${state.userLists.length} eigene Listen${obj.version>=2?` · ${restoredAudio} Aufnahmen`:''}`);
     }catch(err){console.warn(err);toast('Backup konnte nicht gelesen werden');}
     finally{e.target.value='';}
   };
-  $('#resetState').onclick=()=>{if(confirm('Eigene Listen, Patienten und Therapiepläne dieser Testversion wirklich zurücksetzen?')){localStorage.removeItem(STORAGE_KEY);state=cloneData(DEFAULT_STATE);session=null;game={};saveState();applyTheme();renderSettings();toast('Zurückgesetzt');}};
+  $('#resetState').onclick=async()=>{if(confirm('Eigene Listen, Patienten, Therapiepläne und Aufnahmen dieses Browsers wirklich zurücksetzen?')){localStorage.removeItem(STORAGE_KEY);await audioClearAll();state=cloneData(DEFAULT_STATE);session=null;game={};saveState();applyTheme();renderSettings();toast('Zurückgesetzt');}};
   bindPlanBar();
 }
 function settingsHelp(which){
@@ -1104,7 +1231,7 @@ function settingsHelp(which){
     design:['Design','Hier änderst du nur das Aussehen der App. Tippe auf ein Design und du siehst die Änderung sofort. Wähle einfach die Variante, die für dich und den Patienten am angenehmsten zu lesen ist.'],
     session:['Sitzungsstandard','Hier legst du fest, mit wie vielen Wörtern eine neue Wort-Sitzung normalerweise startet. „Wieder von vorne“ bedeutet: Nach dem letzten Wort beginnt die Liste erneut. Du kannst diese Werte später in jeder Sitzung noch ändern.'],
     stories:['Bildergeschichten','Die gelieferten Bilder heißen nur nach Aufnahmedatum. Deshalb zeigt die App zunächst neutrale Namen wie „Bildergeschichte 01“. Mit „Titel zuordnen“ kannst du anhand der Bildvorschau den passenden Titel auswählen. Die Zuordnung wird gespeichert.'],
-    data:['Daten','„Backup speichern“ sichert Einstellungen, eigene Listen, Patienten und Therapiepläne in einer Datei. Mit „Backup öffnen“ kannst du diese Sicherung auf demselben oder einem anderen Gerät wieder laden. Aufnahmen bleiben derzeit separat im jeweiligen Browser und sind nicht Teil dieses Backups. „Testdaten zurücksetzen“ entfernt die selbst angelegten Daten aus diesem Browser.']
+    data:['Daten','„Backup speichern“ erstellt eine vollständige WortZeit-Sicherung mit eigenen Listen, Spielzuordnungen, Import-Prüfstatus, geöffneten/geschlossenen Ordnern, Patienten, Therapieplänen, Einstellungen und Aufnahmen. Mit „Backup öffnen“ kannst du diesen Stand auf demselben oder einem anderen Gerät wiederherstellen. Eine gerade laufende Übung und Browser-Berechtigungen wie Mikrofonfreigabe gehören nicht zur Sicherung.']
   };
   const [title,body]=info[which]||['Einstellungen','Hier kannst du die App an deine Arbeitsweise anpassen.'];
   helpModal(title,`<p>${body}</p>`);
@@ -1144,7 +1271,7 @@ function contextualHelp(){
   const map={
     home:['Start','Wähle eine Liste oder starte direkt mit den Standardwörtern. Danach kannst du eine Wort-Sitzung, ein Spiel oder einen vorbereiteten Therapieplan öffnen.'],
     session:['Sitzung','Das große Wort ist die Übung. Tippe auf die Wortfläche oder auf → für das nächste Wort. Mit ← gehst du zurück. „↺ Anfang“ springt zum Beginn dieser Runde. Mit ▶ läuft die Liste automatisch. Die Helligkeit oben verändert den Hintergrund sofort.'],
-    lists:['Listen','Hier wählst und pflegst du dein Material. „Ordner importieren“ kann ODT/ODS, RTF, TXT, CSV und WortZeit-Dateien gemeinsam einlesen; jede Datei wird einzeln auf ihr Trennzeichen geprüft. Öffne eine Liste und wähle „Liste bearbeiten“, um Text, A/B-Typ, Silben und die passenden Spiele zu ändern. Einen einzelnen Eintrag kannst du direkt in der Vorschau anklicken. Mit + oder ✓ kombinierst du mehrere Listen für eine Mischübung.'],
+    lists:['Listen','Hier wählst und pflegst du dein Material. Ordner bleiben zunächst geschlossen und lassen sich durch Anklicken auf- und zuklappen. Nach einem Import öffnet sich „Import prüfen“ mit genau den neuen Listen, dem erkannten Typ, Trennzeichen und den passenden Spielen. Neu oder unklar erkannte Listen bleiben markiert, bis du sie als geprüft bestätigst. „Alle schließen“ bringt die Ordneransicht jederzeit wieder in einen ruhigen Zustand. Öffne eine Liste und wähle „Liste bearbeiten“, um Text, A/B-Typ, Silben und Spielzuordnungen zu ändern.'],
     games:['Spiele','Wähle einfach ein Spiel. Wenn noch keine passende Liste gewählt ist, fragt WortZeit direkt beim Öffnen danach – du musst nicht erst zurück in die Listenverwaltung. Im Spiel kannst du die Liste oben jederzeit wieder wechseln. ? erklärt das Spiel, × oder Escape beendet es.'],
     patients:['Patienten','Hier kannst du einen einfachen Anzeigenamen anlegen und passende Listen zuordnen. So findest du das vorbereitete Material später schneller wieder.'],
     plans:['Therapiepläne','Ein Therapieplan verbindet mehrere Übungen in einer festen Reihenfolge. Du kannst ihn selbst starten oder als .speechpack-Datei weitergeben. Mit den Pfeilen änderst du die Reihenfolge der Schritte.'],
@@ -1169,7 +1296,7 @@ function clickDefaultAction(){
 }
 
 // ---------- Service worker ----------
-if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.7.1',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
+if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.7.2',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
 
 // ---------- Global events/init ----------
 try{history.replaceState({wz:true,route:'home',depth:0},'',location.href);}catch{}
