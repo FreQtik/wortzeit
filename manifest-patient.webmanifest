@@ -1,0 +1,11 @@
+{
+  "name":"WortZeit Patientenplayer",
+  "short_name":"WortZeit",
+  "start_url":"./?mode=patient",
+  "scope":"./",
+  "display":"standalone",
+  "background_color":"#eaf1f3",
+  "theme_color":"#dfe9ec",
+  "lang":"de",
+  "icons":[]
+}

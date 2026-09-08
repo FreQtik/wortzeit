@@ -1,0 +1,44 @@
+WORTZEIT – GITHUB PAGES SCHNELLSTART
+===================================
+
+WICHTIG
+- Lade den INHALT dieses Ordners in die Root-Ebene des GitHub-Repositories.
+- NICHT die ZIP-Datei selbst hochladen.
+- NICHT noch einen zusätzlichen Unterordner WortZeit_GITHUB_PAGES_v0.6.0 im Repository erzeugen.
+- Keine echten Patienten-Dateien (.speechpack), Patientennamen oder Aufnahmen in GitHub hochladen.
+
+ONLINE-ADRESSEN
+Nach Veröffentlichung unter https://DEINNAME.github.io/wortzeit/
+
+Patientenplayer:
+  https://DEINNAME.github.io/wortzeit/
+
+Behandler:
+  https://DEINNAME.github.io/wortzeit/behandler.html
+  Passwort für diese Demo: qqq
+
+Der Passwortschirm ist auf einer statischen GitHub-Pages-Seite nur eine einfache Zugangshürde, KEINE echte Sicherheitsbarriere.
+Behandler-/Patientendaten sind deshalb absichtlich NICHT im Repository gespeichert. Eigene Daten bleiben lokal im jeweiligen Browser.
+
+SCHRITTE
+1. Auf GitHub ein neues Repository anlegen, z.B. "wortzeit".
+2. Für GitHub Free das Repository PUBLIC anlegen.
+3. Alle Dateien AUS DIESEM ORDNER in die Repository-Root hochladen. Dieser Web-Build hat absichtlich weniger als 100 Dateien, damit der GitHub-Browser-Upload in einem Durchgang funktioniert.
+4. Commit durchführen.
+5. Repository -> Settings -> Pages.
+6. Build and deployment -> Source: "Deploy from a branch".
+7. Branch: main; Folder: /(root); Save.
+8. Einige Minuten warten; dann "Visit site" öffnen.
+9. Patientenplayer testen: Startseite -> .speechpack auswählen -> starten.
+10. Behandler testen: /behandler.html -> Passwort qqq -> Listen/Spiele/Therapieplan öffnen.
+
+HANDY/TABLET DES VATERS
+- Im Browser die Behandler-Adresse öffnen.
+- qqq eingeben.
+- Optional über Browser-Menü "Zum Startbildschirm hinzufügen" / "App installieren".
+- ACHTUNG: PC und Handy haben getrennte lokale Daten. Es gibt noch keine automatische Synchronisierung.
+
+PATIENT
+- Patient bekommt den öffentlichen Patienten-Link plus seine .speechpack-Datei.
+- Link öffnen -> "Übung öffnen" -> Datei auswählen -> Start.
+- Die .speechpack-Datei wird lokal im Browser gelesen und muss NICHT in GitHub hochgeladen werden.

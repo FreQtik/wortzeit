@@ -1,0 +1,11 @@
+{
+  "name":"WortZeit Therapie",
+  "short_name":"WortZeit Therapie",
+  "start_url":"./behandler.html",
+  "scope":"./",
+  "display":"standalone",
+  "background_color":"#eaf1f3",
+  "theme_color":"#dfe9ec",
+  "lang":"de",
+  "icons":[]
+}

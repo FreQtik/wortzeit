@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <script>
+  (()=>{
+    const q = new URLSearchParams(location.search);
+    if (q.get('mode') !== 'patient') {
+      q.set('mode','patient');
+      history.replaceState(null,'',location.pathname+'?'+q.toString()+location.hash);
+    }
+  })();
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#dfe9ec" />
+  <meta name="description" content="Lokale Therapie- und Übungsoberfläche für Wortlisten, Spiele und Therapiepläne." />
+  <link rel="manifest" href="manifest-patient.webmanifest?v=0.6.0" />
+  <link rel="stylesheet" href="styles.css?v=0.6.0" />
+  <title>WortZeit Patientenplayer</title>
+</head>
+<body data-theme="calm">
+  <div id="app" class="app-shell">
+    <header class="topbar">
+      <button id="menuButton" class="icon-btn" aria-label="Menü öffnen" title="Menü">☰</button>
+      <div class="brand" role="button" tabindex="0" data-route="home" aria-label="Startseite">
+        <div class="brand-mark">WZ</div>
+        <div>
+          <div class="brand-title">WortZeit</div>
+          <div class="brand-subtitle" data-i18n="brandSubtitle">Therapie</div>
+        </div>
+      </div>
+      <div class="topbar-center">
+        <button id="currentListButton" class="current-list-pill" data-route="lists">
+          <span class="muted" data-i18n="currentList">Aktuelle Liste</span>
+          <strong id="currentListTitle">Standardwörter</strong>
+        </button>
+      </div>
+      <div class="topbar-actions">
+        <button id="helpButton" class="icon-btn" aria-label="Hilfe" title="Hilfe">?</button>
+        <button id="patientModeButton" class="soft-btn" data-i18n="patientMode">Patientenmodus</button>
+      </div>
+    </header>
+
+    <aside id="drawer" class="drawer" aria-hidden="true">
+      <div class="drawer-head">
+        <div>
+          <div class="eyebrow" data-i18n="navigation">Navigation</div>
+          <strong data-i18n="chooseArea">Bereich wählen</strong>
+        </div>
+        <button id="closeDrawer" class="icon-btn" aria-label="Menü schließen">×</button>
+      </div>
+      <nav class="drawer-nav">
+        <button data-route="home"><span>⌂</span><span data-i18n="home">Start</span></button>
+        <button data-route="session"><span>▶</span><span data-i18n="session">Sitzung</span></button>
+        <button data-route="lists"><span>≡</span><span data-i18n="lists">Listen</span></button>
+        <button data-route="games"><span>◇</span><span data-i18n="games">Spiele</span></button>
+        <button data-route="patients"><span>◎</span><span data-i18n="patients">Patienten</span></button>
+        <button data-route="plans"><span>▤</span><span data-i18n="plans">Therapiepläne</span></button>
+        <button data-route="settings"><span>⚙</span><span data-i18n="settings">Einstellungen</span></button>
+      </nav>
+      <div class="drawer-foot">
+        <div class="privacy-note">
+          <strong data-i18n="localOnly">Lokal gespeichert</strong>
+          <span data-i18n="localOnlyText">Diese Version sendet keine Patienten- oder Listendaten an einen Server.</span>
+        </div>
+      </div>
+    </aside>
+    <div id="scrim" class="scrim" hidden></div>
+
+    <main id="view" class="view" tabindex="-1"></main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <div id="modalRoot"></div>
+  </div>
+
+  <script src="data.js?v=0.6.0"></script>
+  <script src="app.js?v=0.6.0"></script>
+</body>
+</html>

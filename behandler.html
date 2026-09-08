@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#dfe9ec">
+<link rel="manifest" href="./manifest-therapist.webmanifest">
+<title>WortZeit Behandler</title>
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#203035;background:#eaf1f3}*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;padding:24px;background:linear-gradient(145deg,#eef5f6,#dce8eb)}.card{width:min(460px,100%);background:rgba(255,255,255,.92);border:1px solid rgba(36,70,78,.12);border-radius:24px;padding:32px;box-shadow:0 18px 50px rgba(24,55,62,.12)}.brand{display:flex;gap:14px;align-items:center;margin-bottom:24px}.mark{width:52px;height:52px;border-radius:15px;display:grid;place-items:center;background:#243f46;color:white;font-weight:800}.muted{color:#61777c;line-height:1.5}label{display:block;font-weight:700;margin:24px 0 8px}input{width:100%;font:inherit;font-size:20px;padding:15px 16px;border:2px solid #c9d8db;border-radius:14px;outline:none;background:white}input:focus{border-color:#3d7775;box-shadow:0 0 0 4px rgba(61,119,117,.12)}button{width:100%;margin-top:14px;border:0;border-radius:14px;padding:15px;font:inherit;font-weight:800;font-size:18px;background:#356f6b;color:white;cursor:pointer}button:hover{filter:brightness(.97)}.error{min-height:24px;margin-top:10px;color:#9e3434;font-weight:650}.small{font-size:13px;color:#71868b;margin-top:20px;line-height:1.45}</style>
+</head>
+<body>
+<main class="card">
+  <div class="brand"><div class="mark">WZ</div><div><h1 style="margin:0;font-size:26px">WortZeit</h1><div class="muted">Behandlerbereich</div></div></div>
+  <p class="muted">Dieser Bereich ist für die Vorbereitung und Durchführung der Therapie gedacht.</p>
+  <form id="login">
+    <label for="pw">Passwort</label>
+    <input id="pw" type="password" autocomplete="current-password" autofocus inputmode="text">
+    <button type="submit">Behandlerbereich öffnen</button>
+    <div id="err" class="error" aria-live="polite"></div>
+  </form>
+  <p class="small">Die Behandlerdaten bleiben in diesem Browser auf diesem Gerät gespeichert. Der Online-Zugang synchronisiert Daten nicht automatisch zwischen PC und Handy.</p>
+</main>
+<script>
+const EXPECTED='a95bc16631ae2b6fadb455ee018da0adc2703e56d89e3eed074ce56d2f7b1b6a';
+async function hash(v){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(v));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}
+if(sessionStorage.getItem('wzTherapistUnlocked')==='1') location.replace('./app.html');
+document.getElementById('login').addEventListener('submit',async e=>{e.preventDefault();const val=document.getElementById('pw').value;const h=await hash(val);if(h===EXPECTED){sessionStorage.setItem('wzTherapistUnlocked','1');location.replace('./app.html')}else{document.getElementById('err').textContent='Passwort nicht korrekt.';document.getElementById('pw').select()}});
+</script>
+</body></html>

@@ -1,0 +1,136 @@
+{
+  "format": "wortzeit-speechpack",
+  "version": 1,
+  "title": "Demo – Wörter & Silben",
+  "createdAt": "2026-09-06T00:00:00Z",
+  "steps": [
+    {
+      "activity": "session",
+      "listId": "demo_list",
+      "options": {}
+    },
+    {
+      "activity": "syllables",
+      "listId": "demo_list",
+      "options": {}
+    },
+    {
+      "activity": "memory",
+      "listId": "demo_list",
+      "options": {}
+    }
+  ],
+  "lists": [
+    {
+      "id": "demo_list",
+      "title": "Demo-Wörter",
+      "category": "Demo",
+      "kind": "list",
+      "items": [
+        {
+          "id": "demo_hund",
+          "text": "Hund",
+          "syllables": [
+            "Hund"
+          ]
+        },
+        {
+          "id": "demo_katze",
+          "text": "Katze",
+          "syllables": [
+            "Kat",
+            "ze"
+          ]
+        },
+        {
+          "id": "demo_banane",
+          "text": "Banane",
+          "syllables": [
+            "Ba",
+            "na",
+            "ne"
+          ]
+        },
+        {
+          "id": "demo_kamera",
+          "text": "Kamera",
+          "syllables": [
+            "Ka",
+            "me",
+            "ra"
+          ]
+        },
+        {
+          "id": "demo_sonne",
+          "text": "Sonne",
+          "syllables": [
+            "Son",
+            "ne"
+          ]
+        },
+        {
+          "id": "demo_garten",
+          "text": "Garten",
+          "syllables": [
+            "Gar",
+            "ten"
+          ]
+        },
+        {
+          "id": "demo_fahrrad",
+          "text": "Fahrrad",
+          "syllables": [
+            "Fahr",
+            "rad"
+          ]
+        },
+        {
+          "id": "demo_schule",
+          "text": "Schule",
+          "syllables": [
+            "Schu",
+            "le"
+          ]
+        },
+        {
+          "id": "demo_fenster",
+          "text": "Fenster",
+          "syllables": [
+            "Fens",
+            "ter"
+          ]
+        },
+        {
+          "id": "demo_apfel",
+          "text": "Apfel",
+          "syllables": [
+            "Ap",
+            "fel"
+          ]
+        },
+        {
+          "id": "demo_koffer",
+          "text": "Koffer",
+          "syllables": [
+            "Kof",
+            "fer"
+          ]
+        },
+        {
+          "id": "demo_wasser",
+          "text": "Wasser",
+          "syllables": [
+            "Was",
+            "ser"
+          ]
+        }
+      ],
+      "pairs": []
+    }
+  ],
+  "settings": {
+    "lang": "de",
+    "theme": "calm",
+    "brightness": 55
+  }
+}
