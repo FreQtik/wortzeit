@@ -7,8 +7,8 @@ const AUDIO_DB = 'wortzeit_audio_v1';
 const STATE_DB = 'wortzeit_state_v1';
 const STATE_STORE = 'app';
 const STATE_KEY = 'state';
-const OFFLINE_CACHE = 'wortzeit-v0.8.0';
-const OFFLINE_SHELL = ['./','./index.html','./app.html','./behandler.html','./patient.html','./styles.css?v=0.8.0','./data.js?v=0.8.0','./app.js?v=0.8.0','./manifest-patient.webmanifest','./manifest-therapist.webmanifest'];
+const OFFLINE_CACHE = 'wortzeit-v0.8.3';
+const OFFLINE_SHELL = ['./','./index.html','./app.html','./behandler.html','./patient.html','./styles.css?v=0.8.3','./data.js?v=0.8.3','./app.js?v=0.8.3','./manifest-patient.webmanifest','./manifest-therapist.webmanifest'];
 const $ = (sel, root=document) => root.querySelector(sel);
 const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 const esc = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
@@ -35,10 +35,10 @@ const defaultList = {
 };
 
 const DEFAULT_STATE = {
-  version:3,
+  version:4,
   currentListId:null,
   userLists:[], patients:[], plans:[], storyTitleOverrides:{}, activeListIds:[], recentListIds:[],
-  importReviewBatches:[], lastImportBatchId:null, listFolderOpen:{}, reviewMigrationVersion:0,
+  importReviewBatches:[], lastImportBatchId:null, listFolderOpen:{}, reviewMigrationVersion:0, duplicateIgnoreGroups:[],
   settings:{lang:'de',theme:'calm',brightness:55,sessionFontScale:50,itemsPerScreen:1,order:'random',unique:true,endless:false,interval:3,bpm:60,beats:4,instantAudio:false,reducedMotion:false,onboardingSeen:false},
   stats:{sortScore:0,storyScore:0,letterScore:0}
 };
@@ -78,7 +78,8 @@ function normalizeLoadedState(parsed){
     importReviewBatches:Array.isArray(parsed.importReviewBatches)?parsed.importReviewBatches:[],
     lastImportBatchId:parsed.lastImportBatchId||null,
     listFolderOpen:parsed.listFolderOpen&&typeof parsed.listFolderOpen==='object'?parsed.listFolderOpen:{},
-    reviewMigrationVersion:Number(parsed.reviewMigrationVersion)||0
+    reviewMigrationVersion:Number(parsed.reviewMigrationVersion)||0,
+    duplicateIgnoreGroups:Array.isArray(parsed.duplicateIgnoreGroups)?parsed.duplicateIgnoreGroups:[]
   };
 }
 async function loadState(){
@@ -121,12 +122,23 @@ function normalizeListStorage(L){
   if(!L||typeof L!=='object')return L;
   L.folders=listFolders(L);L.category=L.folders[0];
   if(typeof L.entrySeparator!=='string')L.entrySeparator='';
+  if(!L.origin)L.origin=L.sourcePath?'imported':'created';
+  if(!Array.isArray(L.aliases))L.aliases=[];
   return L;
 }
 function normalizeAllUserLists(s){(s.userLists||[]).forEach(normalizeListStorage);}
 function setListFolders(L,folders){L.folders=[...new Set((folders||[]).map(x=>String(x||'').trim()).filter(Boolean))];if(!L.folders.length)L.folders=['Eigene Listen'];L.category=L.folders[0];}
 function knownFolders(){return [...new Set(selectableLists().flatMap(listFolders))].sort((a,b)=>a.localeCompare(b,'de',{sensitivity:'base',numeric:true}));}
 function addListToFolder(L,folder){folder=String(folder||'').trim();if(!L||!folder)return false;setListFolders(L,[...listFolders(L),folder]);return true;}
+function removeFolderAssignment(folderSet,folder){
+  folder=String(folder||'').trim();
+  if(!folderSet?.has(folder))return {changed:false};
+  folderSet.delete(folder);
+  if(folderSet.size)return {changed:true};
+  const fallback='Unsortiert';
+  folderSet.add(fallback);
+  return {changed:true,fallback};
+}
 function migrateImportReviewState(s){
   let changed=false;
   if(!Array.isArray(s.importReviewBatches)){s.importReviewBatches=[];changed=true;}
@@ -312,9 +324,9 @@ function bindPlanBar(){ if(!activePlanRun) return; $('#planPrev')?.addEventListe
 function showWelcome(){
   openModal(`<div class="modal-head"><div><div class="eyebrow">Willkommen</div><h2>WortZeit in drei Schritten</h2></div><button class="icon-btn" data-close-modal>×</button></div>
   <div class="welcome-steps">
-    <div class="welcome-step"><span>1</span><div><strong>Liste wählen</strong><p>Öffne "Listen" und tippe auf das Material, mit dem du arbeiten möchtest. Mehrere Listen kannst du mit + zu einer Mischübung verbinden.</p></div></div>
-    <div class="welcome-step"><span>2</span><div><strong>Sitzung oder Spiel starten</strong><p>Unter "Sitzung" werden Wörter groß angezeigt. Unter "Spiele" wählst du direkt die gewünschte Übung. Das ? erklärt immer genau den aktuellen Bildschirm.</p></div></div>
-    <div class="welcome-step"><span>3</span><div><strong>Für später vorbereiten</strong><p>Unter "Therapiepläne" stellst du mehrere Übungen zusammen. Mit "Exportieren" entsteht eine .speechpack-Datei für den Patientenplayer.</p></div></div>
+    <div class="welcome-step"><span>1</span><div><strong>Einfach anfangen</strong><p>Wähle zuerst, was du machen möchtest: Wörter anzeigen oder ein Spiel starten. Fehlt dafür Material, fragt WortZeit direkt nach einer passenden Liste. Du musst dir keinen festen Menüweg merken.</p></div></div>
+    <div class="welcome-step"><span>2</span><div><strong>Material dort wechseln, wo du es brauchst</strong><p>In Spielen kannst du die Liste oben direkt wechseln. Unter "Listen" kannst du Material importieren, bearbeiten, mehreren Therapie-Ordnern zuweisen und neue Importe in Ruhe prüfen. Das ? erklärt immer den aktuellen Bildschirm.</p></div></div>
+    <div class="welcome-step"><span>3</span><div><strong>Sichern oder für Patienten vorbereiten</strong><p>Unter "Therapiepläne" stellst du Übungen zusammen und exportierst eine .speechpack-Datei. Unter "Einstellungen → Daten & Geräte" sicherst du dagegen deinen kompletten WortZeit-Arbeitsstand als Datenpaket oder überträgst ihn auf ein anderes Gerät.</p></div></div>
   </div>
   <div class="modal-foot"><button class="soft-btn" id="welcomeLater">Später</button><button class="primary-btn" id="welcomeDone">Verstanden</button></div>`);
   $('#welcomeLater')?.addEventListener('click',closeModal);
@@ -471,6 +483,7 @@ function renderLists(){
         <button class="soft-btn compact-btn" id="collapseAllFolders">▸ Alle schließen</button>
         ${pending.length?`<button class="review-summary-btn" id="openPendingReview">Import prüfen <span>${pending.length}</span></button><button class="soft-btn compact-btn" id="openPendingFolders">Nur ungeprüfte öffnen</button>`:''}
         ${lastBatch?`<button class="soft-btn compact-btn" id="openLastImport">Letzter Import</button>`:''}
+        <button class="soft-btn compact-btn" id="checkDuplicates">Duplikate prüfen</button>
       </div>
       <div class="small muted" style="margin-top:8px">Ordner sind zunächst geschlossen. Klick auf einen Ordner klappt ihn auf oder wieder zu. Klick auf einen Listennamen = auswählen, ✓ = zur Mischübung hinzufügen.</div>
       <div id="listTree" class="section"></div>
@@ -481,7 +494,7 @@ function renderLists(){
   <input id="folderPicker" type="file" webkitdirectory directory multiple hidden>`;
   const renderTree=(q='')=>{
     const norm=q.trim().toLocaleLowerCase('de');
-    const filtered=lists.filter(x=>!norm || `${x.title} ${listFolders(x).join(' ')} ${listGameTags(x).map(t=>LIST_GAME_LABELS[t]).join(' ')}`.toLocaleLowerCase('de').includes(norm));
+    const filtered=lists.filter(x=>!norm || `${x.title} ${(x.aliases||[]).join(' ')} ${listFolders(x).join(' ')} ${listGameTags(x).map(t=>LIST_GAME_LABELS[t]).join(' ')}`.toLocaleLowerCase('de').includes(norm));
     const groups=new Map();filtered.forEach(L=>{for(const cat of listFolders(L)){if(!groups.has(cat))groups.set(cat,[]);groups.get(cat).push(L);}});groups.forEach(arr=>arr.sort((a,b)=>a.title.localeCompare(b.title,'de',{sensitivity:'base',numeric:true})));
     const entries=[...groups.entries()].sort((a,b)=>a[0].localeCompare(b[0],'de',{sensitivity:'base',numeric:true}));
     $('#listTree').innerHTML=entries.map(([cat,arr])=>{
@@ -518,6 +531,7 @@ function renderLists(){
   $('#openPendingFolders')?.addEventListener('click',()=>{const next={};lists.filter(listNeedsReview).forEach(L=>listFolders(L).forEach(f=>next[f]=true));state.listFolderOpen=next;saveState();renderTree($('#listSearch').value);});
   $('#openPendingReview')?.addEventListener('click',()=>openImportReview('pending'));
   $('#openLastImport')?.addEventListener('click',()=>openImportReview(state.lastImportBatchId));
+  $('#checkDuplicates')?.addEventListener('click',()=>openDuplicateReview());
   $('#newList').onclick=openNewListModal;
   $('#importFile').onclick=()=>$('#filePicker').click(); $('#filePicker').onchange=e=>importFiles([...e.target.files]);
   $('#importFolder').onclick=()=>{const picker=$('#folderPicker');if('webkitdirectory' in picker){picker.click();}else{toast('Dieser Browser kann keinen ganzen Ordner auswählen. Bitte mehrere Dateien markieren.');$('#filePicker').click();}}; $('#folderPicker').onchange=e=>importFiles([...e.target.files],true);
@@ -532,7 +546,7 @@ function openNewListModal(){
 }
 function makeUserList(title,pieces,category='Eigene Listen',sourcePath='',syllableSeparator='',entrySeparator=''){
   const items=pieces.map((raw,i)=>{const source=String(raw).trim();if(!source)return null;if(syllableSeparator&&source.includes(syllableSeparator)){const syllables=source.split(syllableSeparator).map(x=>x.trim()).filter(Boolean);return {id:uid(`i${i}`),text:syllables.join(''),syllables,sourceText:source};}return {id:uid(`i${i}`),text:source};}).filter(Boolean);
-  return {id:uid('list'),title,category,folders:[category||'Eigene Listen'],kind:'list',sourcePath,bundled:false,syllableSeparator:syllableSeparator||'',entrySeparator:entrySeparator||'',items};
+  return {id:uid('list'),title,category,folders:[category||'Eigene Listen'],kind:'list',sourcePath,bundled:false,origin:sourcePath?'imported':'created',syllableSeparator:syllableSeparator||'',entrySeparator:entrySeparator||'',items,aliases:[]};
 }
 function rebuildListPairs(L){
   if(L.kind!=='pair'){delete L.pairs;return;}
@@ -540,7 +554,7 @@ function rebuildListPairs(L){
 }
 function editListTarget(L){
   if(!L.bundled)return L;
-  const copy=normalizeListStorage({...cloneData(L),id:uid('list'),bundled:false,category:`Eigene Kopie · ${L.category||'Liste'}`,folders:[`Eigene Kopie · ${L.category||'Liste'}`],title:`${L.title} · Kopie`,sourcePath:`Kopie von ${L.sourcePath||L.title}`,gameTags:listGameTags(L)});
+  const copy=normalizeListStorage({...cloneData(L),id:uid('list'),bundled:false,category:`Eigene Kopie · ${L.category||'Liste'}`,folders:[`Eigene Kopie · ${L.category||'Liste'}`],title:`${L.title} · Kopie`,sourcePath:`Kopie von ${L.sourcePath||L.title}`,origin:'copied',aliases:[],gameTags:listGameTags(L)});
   copy.items=(copy.items||[]).map((it,i)=>({...it,id:uid(`i${i}`)}));rebuildListPairs(copy);state.userLists.push(copy);state.currentListId=copy.id;state.activeListIds=[copy.id];rememberList(copy.id);saveState();return copy;
 }
 function listEditorFormattedText(L,items=L.items||[]){
@@ -572,12 +586,15 @@ function openListEditor(sourceList,returnReviewScope=null){
   const folderOptions=knownFolders().map(f=>`<option value="${esc(f)}"></option>`).join('');
   openModal(`<div class="modal-head"><div><div class="eyebrow">Liste bearbeiten</div><h2>${esc(L.title)}</h2></div><button class="icon-btn" data-close-modal>×</button></div>
     <div class="form-row"><div class="field grow"><label>Listenname</label><input id="leTitle" value="${esc(L.title)}"></div><div class="field"><label>Typ</label><select id="leKind"><option value="list">Normale Liste</option><option value="pair">A/B-Paare</option><option value="choiceStory">Auswahlgeschichte</option></select></div><div class="field"><label>Eintrags-Trennzeichen</label><input id="leEntrySep" value="${esc(L.entrySeparator||'')}" placeholder="leer = Zeilenumbruch" maxlength="5"></div><div class="field"><label>Silbentrenner</label><input id="leSyllSep" value="${esc(L.syllableSeparator||'')}" placeholder="z. B. -" maxlength="3"></div></div>
-    <div class="section"><div class="eyebrow">Ordner · eine Liste darf in mehreren Ordnern erscheinen</div><div id="leFolderChips" class="folder-assignment-chips"></div><div class="form-row folder-assignment-row"><div class="field grow"><label>Weiteren Ordner zuweisen</label><input id="leFolderInput" list="leFolderSuggestions" placeholder="Ordner wählen oder neuen Namen eingeben"><datalist id="leFolderSuggestions">${folderOptions}</datalist></div><button class="soft-btn" id="leFolderAdd">+ Zuweisen</button></div><p class="small muted">Die Liste wird nicht dupliziert: dieselbe Liste kann an mehreren Stellen erscheinen. Eine Änderung gilt dann überall.</p></div>
+    <div class="section"><div class="eyebrow">Ordner · eine Liste darf in mehreren Ordnern erscheinen</div><div id="leFolderChips" class="folder-assignment-chips"></div><div class="form-row folder-assignment-row"><div class="field grow"><label>Weiteren Ordner zuweisen</label><input id="leFolderInput" list="leFolderSuggestions" placeholder="Ordner wählen oder neuen Namen eingeben"><datalist id="leFolderSuggestions">${folderOptions}</datalist></div><button class="soft-btn" id="leFolderAdd">+ Zuweisen</button></div><p class="small muted">Das × entfernt nur diese Ordnerzuordnung – die Liste selbst bleibt erhalten. Ist es der letzte Ordner, landet die Liste sicher unter „Unsortiert“. „Liste löschen“ ist davon getrennt und bleibt eine eigene rote Aktion.</p></div>
     <div class="section"><div class="eyebrow">In welchen Übungen soll die Liste auftauchen?</div><div class="game-tag-grid" id="leGameTags">${gameTagCheckboxes(selected)}</div><p class="small muted">Diese Zuordnung kannst du jederzeit ändern. So zeigt ein Spiel später nur passende Listen an.</p></div>
     <div class="field section"><div class="list-editor-modebar"><label>Einträge</label><div class="segmented"><button type="button" class="seg-btn active" id="leModeFormatted">Aufgelistet</button><button type="button" class="seg-btn" id="leModeRaw">Unformatiert</button></div></div><textarea id="leText" class="list-editor-text">${esc(listEditorFormattedText(L))}</textarea><div class="small muted" id="leModeHelp">Ein Eintrag pro Zeile${kind==='pair'?' · A | B pro Zeile':''}. Für große Einfügungen kannst du auf „Unformatiert“ wechseln.</div></div>
     <div class="modal-foot">${returnReviewScope?`<button class="soft-btn" id="leBackReview">← Importprüfung</button>`:''}<button class="soft-btn" id="leDownload">Bearbeitete Liste exportieren</button><button class="primary-btn" id="leSave">Änderungen speichern</button></div>`);
   $('#leKind').value=kind;
-  const renderFolders=()=>{$('#leFolderChips').innerHTML=[...folderSet].map(f=>`<button type="button" class="folder-assignment-chip" data-remove-folder="${esc(f)}"><span>${esc(f)}</span><b>×</b></button>`).join('');$$('[data-remove-folder]').forEach(b=>b.onclick=()=>{if(folderSet.size<=1)return toast('Mindestens ein Ordner muss bleiben.');folderSet.delete(b.dataset.removeFolder);renderFolders();});};renderFolders();
+  const renderFolders=()=>{
+    $('#leFolderChips').innerHTML=[...folderSet].map(f=>`<span class="folder-assignment-chip"><span class="folder-assignment-name">${esc(f)}</span><button type="button" class="folder-assignment-remove" data-remove-folder="${esc(f)}" aria-label="Aus Ordner ${esc(f)} entfernen" title="Nur aus diesem Ordner entfernen">×</button></span>`).join('');
+    $$('[data-remove-folder]').forEach(b=>b.onclick=()=>{const result=removeFolderAssignment(folderSet,b.dataset.removeFolder);if(!result.changed)return;renderFolders();if(result.fallback)toast('Ordnerzuordnung entfernt · Liste bleibt unter „Unsortiert“ erhalten');});
+  };renderFolders();
   $('#leFolderAdd').onclick=()=>{const f=$('#leFolderInput').value.trim();if(!f)return;folderSet.add(f);$('#leFolderInput').value='';renderFolders();};
   const convertMode=next=>{if(next===editorMode)return;const entrySep=$('#leEntrySep').value,syllSep=$('#leSyllSep').value;const tempItems=parseEditorItems({...L,kind:$('#leKind').value},$('#leText').value,syllSep,editorMode,entrySep);const temp={...L,kind:$('#leKind').value,items:tempItems,entrySeparator:entrySep};$('#leText').value=next==='raw'?listEditorRawText(temp,tempItems,entrySep):listEditorFormattedText(temp,tempItems);editorMode=next;$('#leModeFormatted').classList.toggle('active',next==='formatted');$('#leModeRaw').classList.toggle('active',next==='raw');$('#leModeHelp').textContent=next==='raw'?`Rohansicht · Trennung: ${entrySep||'Zeilenumbruch'}. Hier kannst du lange Blöcke direkt einfügen.`:`Ein Eintrag pro Zeile${temp.kind==='pair'?' · A | B pro Zeile':''}.`;};
   $('#leModeFormatted').onclick=()=>convertMode('formatted');$('#leModeRaw').onclick=()=>convertMode('raw');
@@ -660,6 +677,87 @@ function createImportReview(L,{batchId,clean='',separator='',warnings=[]}={}){
   if(notes.length)confidence='low';
   return {status:notes.length?'warning':'new',batchId,importedAt:new Date().toISOString(),confidence,separator:importSeparatorLabel(separator,clean),warnings:[...new Set(notes)]};
 }
+
+function exactListContentKey(L){
+  // Deliberately excludes title, folders, source path, game tags and IDs.
+  // Two lists are duplicates only when their stored therapeutic content and order match exactly.
+  const items=(L.items||[]).map(it=>({text:String(it.text||''),syllables:Array.isArray(it.syllables)?it.syllables.map(x=>String(x)):[]}));
+  const pairs=L.kind==='pair'?(L.pairs||[]).map(p=>({a:String(p.a||''),b:String(p.b||'')})):[];
+  return JSON.stringify({kind:L.kind||'list',items,pairs});
+}
+function duplicateGroupId(group){return group.map(L=>L.id).sort().join('|');}
+function findExactDuplicateGroups({includeIgnored=false}={}){
+  const buckets=new Map();
+  for(const L of state.userLists||[]){
+    const key=exactListContentKey(L);if(!key||!(L.items||[]).length)continue;
+    if(!buckets.has(key))buckets.set(key,[]);buckets.get(key).push(L);
+  }
+  const ignored=new Set(state.duplicateIgnoreGroups||[]);
+  return [...buckets.values()].filter(g=>g.length>1).filter(g=>includeIgnored||!ignored.has(duplicateGroupId(g))).sort((a,b)=>b[0].items.length-a[0].items.length||a[0].title.localeCompare(b[0].title,'de'));
+}
+function replaceListReference(oldId,newId){
+  if(oldId===newId)return;
+  if(state.currentListId===oldId)state.currentListId=newId;
+  state.activeListIds=[...new Set((state.activeListIds||[]).map(id=>id===oldId?newId:id))];
+  state.recentListIds=[...new Set((state.recentListIds||[]).map(id=>id===oldId?newId:id))];
+  for(const p of state.patients||[])p.listIds=[...new Set((p.listIds||[]).map(id=>id===oldId?newId:id))];
+  for(const plan of state.plans||[])for(const step of plan.steps||[]){
+    if(step.listId===oldId)step.listId=newId;
+    if(Array.isArray(step.listIds))step.listIds=[...new Set(step.listIds.map(id=>id===oldId?newId:id))];
+  }
+  for(const batch of state.importReviewBatches||[])batch.listIds=[...new Set((batch.listIds||[]).map(id=>id===oldId?newId:id))];
+}
+async function duplicateAudioInfo(group){
+  const entries=await audioAllEntries(),byKey=new Map(entries);
+  let recordings=0,conflicts=0;
+  for(let i=0;i<(group[0]?.items||[]).length;i++){
+    const present=[];
+    for(const L of group){const it=L.items?.[i];if(!it)continue;const key=`${L.id}:${it.id}`;if(byKey.has(key)){present.push([key,byKey.get(key)]);recordings++;}}
+    if(present.length>1)conflicts++;
+  }
+  return {byKey,recordings,conflicts};
+}
+async function mergeExactDuplicateGroup(group,keepId){
+  const keep=group.find(L=>L.id===keepId);if(!keep)throw new Error('Zielliste nicht gefunden');
+  if(group.some(L=>exactListContentKey(L)!==exactListContentKey(keep)))throw new Error('Listen sind nicht mehr 1:1 identisch. Bitte erneut prüfen.');
+  const audio=await duplicateAudioInfo(group);if(audio.conflicts)throw new Error(`Nicht zusammengeführt: ${audio.conflicts} Position(en) enthalten Aufnahmen in mehreren Kopien. Bitte beide Listen behalten oder die Audio-Dopplung zuerst manuell klären.`);
+  keep.aliases=[...new Set([...(keep.aliases||[]),...group.filter(L=>L.id!==keep.id).flatMap(L=>[L.title,...(L.aliases||[])])])].filter(x=>x&&x!==keep.title);
+  setListFolders(keep,[...new Set(group.flatMap(listFolders))]);
+  keep.gameTags=[...new Set(group.flatMap(listGameTags))];if(!keep.gameTags.includes('session'))keep.gameTags.unshift('session');
+  for(const L of group){
+    if(L.id===keep.id)continue;
+    for(let i=0;i<(L.items||[]).length;i++){
+      const src=L.items[i],dst=keep.items[i];if(!src||!dst)continue;
+      const srcKey=`${L.id}:${src.id}`,dstKey=`${keep.id}:${dst.id}`,blob=audio.byKey.get(srcKey);
+      if(blob&&!audio.byKey.has(dstKey)){await audioSet(dstKey,blob);audio.byKey.set(dstKey,blob);}
+      if(blob)await audioDelete(srcKey);
+    }
+    replaceListReference(L.id,keep.id);
+  }
+  const removed=new Set(group.filter(L=>L.id!==keep.id).map(L=>L.id));
+  state.userLists=state.userLists.filter(L=>!removed.has(L.id));
+  state.duplicateIgnoreGroups=(state.duplicateIgnoreGroups||[]).filter(id=>{const members=new Set(String(id).split('|'));return !group.some(L=>members.has(L.id));});
+  saveState();await flushStateSave();return keep;
+}
+async function openDuplicateReview(){
+  let showIgnored=false;
+  openModal('<div id="duplicateReviewRoot"></div>','duplicate-review-modal');
+  const draw=async()=>{
+    const all=findExactDuplicateGroups({includeIgnored:true}),ignoredSet=new Set(state.duplicateIgnoreGroups||[]),groups=showIgnored?all:all.filter(g=>!ignoredSet.has(duplicateGroupId(g)));
+    const root=$('#duplicateReviewRoot');if(!root)return;
+    root.innerHTML=`<div class="modal-head"><div><div class="eyebrow">Bibliothek aufräumen</div><h2>Exakte Duplikate prüfen</h2><p class="muted">Es werden nur Listen gruppiert, deren gespeicherter Inhalt, Reihenfolge, Typ und Silbeninformation 1:1 übereinstimmen. Name, Ordner und Spielzuordnung dürfen verschieden sein.</p></div><button class="icon-btn" data-close-duplicates>×</button></div>
+      <div class="duplicate-toolbar"><span><strong>${all.length}</strong> Duplikatgruppe${all.length===1?'':'n'} gefunden</span><label class="toggle"><input id="showIgnoredDuplicates" type="checkbox" ${showIgnored?'checked':''}> bewusst behaltene zeigen</label></div>
+      <div class="duplicate-list">${groups.length?groups.map((group,gi)=>{const gid=duplicateGroupId(group),ignored=ignoredSet.has(gid),keep=group[0];return `<section class="duplicate-group ${ignored?'ignored':''}" data-dup-group="${gi}"><div class="duplicate-group-head"><div><strong>${group.length} identische Listen</strong><span>${keep.items.length} Einträge · ${ignored?'bewusst behalten':'Prüfung offen'}</span></div>${ignored?`<button class="soft-btn compact-btn" data-dup-unignore="${esc(gid)}">Wieder prüfen</button>`:''}</div><div class="duplicate-rows">${group.map((L,i)=>`<label class="duplicate-row"><input type="radio" name="dupkeep_${gi}" value="${esc(L.id)}" ${i===0?'checked':''}><span class="duplicate-row-main"><strong>${esc(L.title)}</strong><small>${esc(listFolders(L).join(' · '))}</small><small>${L.sourcePath?esc(L.sourcePath):'Im Programm erstellt'}${(L.aliases||[]).length?` · Suchnamen: ${esc(L.aliases.join(', '))}`:''}</small></span><span>${L.items.length} Einträge</span></label>`).join('')}</div>${ignored?'':`<div class="duplicate-actions"><span class="small muted">Beim Zusammenführen bleiben die ausgewählte Liste, alle Ordner, Spielzuordnungen und Verknüpfungen erhalten. Abweichende Audioaufnahmen werden niemals still überschrieben.</span><button class="soft-btn" data-dup-ignore="${esc(gid)}">Bewusst beide behalten</button><button class="primary-btn" data-dup-merge="${gi}">Ausgewählte behalten & zusammenführen</button></div>`}</section>`}).join(''):`<div class="import-review-empty"><strong>Keine offenen exakten Duplikate.</strong><span>${all.length?'Alle gefundenen Gruppen wurden bewusst als getrennte Listen bestätigt.':'Die Bibliothek enthält aktuell keine 1:1 identischen Listen.'}</span></div>`}</div>
+      <div class="modal-foot"><span class="small muted">Es wird niemals automatisch gelöscht oder zusammengeführt.</span><button class="primary-btn" data-close-duplicates>Fertig</button></div>`;
+    $$('[data-close-duplicates]').forEach(b=>b.onclick=()=>{closeModal();renderLists();});
+    $('#showIgnoredDuplicates')?.addEventListener('change',e=>{showIgnored=e.target.checked;draw();});
+    $$('[data-dup-ignore]').forEach(b=>b.onclick=()=>{state.duplicateIgnoreGroups=[...new Set([...(state.duplicateIgnoreGroups||[]),b.dataset.dupIgnore])];saveState();draw();toast('Diese identischen Listen bleiben bewusst getrennt');});
+    $$('[data-dup-unignore]').forEach(b=>b.onclick=()=>{state.duplicateIgnoreGroups=(state.duplicateIgnoreGroups||[]).filter(x=>x!==b.dataset.dupUnignore);saveState();draw();});
+    $$('[data-dup-merge]').forEach(b=>b.onclick=async()=>{const gi=+b.dataset.dupMerge,group=groups[gi];if(!group)return;const selected=$(`input[name="dupkeep_${gi}"]:checked`)?.value||group[0].id;const keep=group.find(L=>L.id===selected);if(!keep)return;if(!confirm(`Diese ${group.length} inhaltlich identischen Listen zusammenführen?\n\nBehalten: ${keep.title}\n\nOrdner und Verknüpfungen werden vereinigt. Keine nicht-identischen Inhalte werden angerührt.`))return;b.disabled=true;b.textContent='Wird sicher zusammengeführt …';try{await mergeExactDuplicateGroup(group,selected);toast(`Duplikate zusammengeführt · „${keep.title}“ bleibt erhalten`);await draw();}catch(err){console.warn(err);toast(err.message||'Duplikate konnten nicht zusammengeführt werden');await draw();}});
+  };
+  await draw();
+}
+
 function openImportReview(scope=state.lastImportBatchId||'pending'){
   const batch=scope&&scope!=='pending'?(state.importReviewBatches||[]).find(b=>b.id===scope):null;
   const ids=batch?batch.listIds||[]:state.userLists.filter(listNeedsReview).map(L=>L.id);
@@ -679,12 +777,13 @@ function openImportReview(scope=state.lastImportBatchId||'pending'){
       ${batch?.failed?.length?`<div class="error-banner"><strong>${batch.failed.length} Dateien konnten nicht gelesen werden.</strong><br>${batch.failed.slice(0,8).map(x=>`${esc(x.name)} · ${esc(x.reason)}`).join('<br>')}${batch.failed.length>8?'<br>…':''}</div>`:''}
       <div class="import-review-table"><div class="import-review-head"><span>Liste / Ordner</span><span>Typ</span><span>Trennung</span><span>Einträge</span><span>Übungen</span><span>Erkennung</span><span>Aktion</span></div>
       ${shown.length?shown.map(L=>{const r=L.review||{},tags=listGameTags(L).filter(x=>x!=='session');return `<div class="import-review-row ${esc(r.status||'')}"><div class="review-list-main"><strong>${esc(L.title)}</strong><small>${esc(listFolders(L).join(' · '))}</small>${r.warnings?.length?`<small class="review-warning-text">${r.warnings.map(esc).join(' · ')}</small>`:''}</div><div data-label="Typ">${esc(listKindLabel(L))}</div><div data-label="Trennung"><code>${esc(r.separator||'–')}</code></div><div data-label="Einträge">${L.items?.length||0}</div><div data-label="Übungen" class="review-game-cell">${tags.length?tags.slice(0,5).map(t=>`<span>${esc(LIST_GAME_LABELS[t]||t)}</span>`).join(''):'<span>Wortanzeige</span>'}</div><div data-label="Erkennung"><span class="review-confidence ${esc(r.confidence||'unknown')}">${esc(confidenceLabel(r.confidence))}</span><br><span class="list-review-pill ${esc(r.status||'new')}">${esc(listReviewStatusLabel(L)||'NEU')}</span></div><div class="review-row-actions">${r.status==='checked'?`<button class="soft-btn compact-btn" data-review-reopen="${esc(L.id)}">Nochmal prüfen</button>`:`<button class="review-done-btn compact-btn" data-review-done="${esc(L.id)}">✓ Geprüft</button>`}<button class="soft-btn compact-btn" data-review-edit="${esc(L.id)}">Bearbeiten</button></div></div>`}).join(''):`<div class="import-review-empty"><strong>Für diesen Filter ist nichts mehr offen.</strong><span>Du kannst das Fenster schließen oder einen anderen Filter wählen.</span></div>`}</div>
-      <div class="modal-foot import-review-foot"><span class="muted small">Prüfstatus, Ordnerzustand und Zuordnungen werden im WortZeit-Backup mitgesichert.</span>${pendingCount?`<button class="review-done-btn" id="reviewAllDone">✓ Alle ${pendingCount} als geprüft markieren</button>`:''}<button class="primary-btn" data-close-review>Fertig</button></div>`;
+      <div class="modal-foot import-review-foot"><span class="muted small">Prüfstatus, Ordnerzustand und Zuordnungen werden im WortZeit-Datenpaket mitgesichert.</span><button class="soft-btn" id="reviewDuplicates">Duplikate prüfen</button>${pendingCount?`<button class="review-done-btn" id="reviewAllDone">✓ Alle ${pendingCount} als geprüft markieren</button>`:''}<button class="primary-btn" data-close-review>Fertig</button></div>`;
     $$('[data-close-review]').forEach(b=>b.onclick=()=>{closeModal();renderLists();});
     $$('[data-review-filter]').forEach(b=>b.onclick=()=>{filter=b.dataset.reviewFilter;draw();});
     $$('[data-review-done]').forEach(b=>b.onclick=()=>{const L=state.userLists.find(x=>x.id===b.dataset.reviewDone);if(L)markListReviewed(L,true);draw();});
     $$('[data-review-reopen]').forEach(b=>b.onclick=()=>{const L=state.userLists.find(x=>x.id===b.dataset.reviewReopen);if(L)markListReviewed(L,false);draw();});
     $$('[data-review-edit]').forEach(b=>b.onclick=()=>{const L=state.userLists.find(x=>x.id===b.dataset.reviewEdit);if(!L)return;state.currentListId=L.id;saveState();closeModal();renderLists();setTimeout(()=>openListEditor(L,scope),20);});
+    $('#reviewDuplicates')?.addEventListener('click',()=>{closeModal();setTimeout(()=>openDuplicateReview(),20);});
     $('#reviewAllDone')?.addEventListener('click',()=>{target.filter(listNeedsReview).forEach(L=>{L.review.status='checked';L.review.checkedAt=new Date().toISOString();});saveState();draw();toast('Import als geprüft markiert');});
   };
   draw();
@@ -698,7 +797,7 @@ async function importFiles(files,folder=false){
       const rel=file.webkitRelativePath||file.name;
       if(lower.endsWith('.json')){
         const obj=JSON.parse(txt.replace(/^\uFEFF/,''));
-        if(obj?.format==='wortzeit-list'&&obj.list){const L=normalizeListStorage({...obj.list,id:uid('list'),bundled:false,sourcePath:obj.list.sourcePath||rel});L.review=createImportReview(L,{batchId,clean:'',separator:'WortZeit'});state.userLists.push(L);batchListIds.push(L.id);imported++;continue;}
+        if(obj?.format==='wortzeit-list'&&obj.list){const L=normalizeListStorage({...obj.list,id:uid('list'),bundled:false,origin:'imported',sourcePath:obj.list.sourcePath||rel});L.review=createImportReview(L,{batchId,clean:'',separator:'WortZeit'});state.userLists.push(L);batchListIds.push(L.id);imported++;continue;}
       }
       const clean=lower.endsWith('.rtf')?decodeRtfBrowser(txt):txt;
       const likelySep=detectImportSeparator(clean,lower);
@@ -1237,7 +1336,7 @@ function base64ToBlob(data,type='application/octet-stream'){const bin=atob(data)
 function startLocalPlan(plan){if(!plan||!plan.steps.length)return toast('Der Plan enthält noch keine Schritte');activePlanRun={pkg:packageFromPlan(plan),index:0,local:true};launchPlanStep();}
 function launchPlanStep(){
   if(!activePlanRun)return;const step=activePlanRun.pkg.steps[activePlanRun.index];const ids=(step.listIds?.length?step.listIds:[step.listId]).filter(Boolean);
-  for(const id of ids){const list=activePlanRun.pkg.lists.find(L=>L.id===id);if(list&&!allLists().find(L=>L.id===list.id))state.userLists.push(normalizeListStorage({...list,bundled:false,category:`Paket · ${activePlanRun.pkg.title}`}));}
+  for(const id of ids){const list=activePlanRun.pkg.lists.find(L=>L.id===id);if(list&&!allLists().find(L=>L.id===list.id))state.userLists.push(normalizeListStorage({...list,bundled:false,origin:'package',category:`Paket · ${activePlanRun.pkg.title}`}));}
   if(ids.length){state.currentListId=ids[0];state.activeListIds=ids;ids.forEach(rememberList);saveState();}
   game={};session=null;route=step.activity||'session';render();
 }
@@ -1251,7 +1350,7 @@ function renderSettings(){
     <div class="card"><button class="icon-btn card-help" data-settings-help="design" aria-label="Hilfe zu Design">?</button><h2>Design</h2><p>Wähle die Darstellung, die sich am angenehmsten lesen lässt. Die Änderung ist sofort sichtbar.</p><div class="theme-picks">${[['calm','Ruhig'],['light','Hell'],['dark','Dunkel'],['contrast','Schwarz / Gelb'],['warm','Warm']].map(([k,v])=>`<button class="theme-pick ${s.theme===k?'active':''}" data-theme-pick="${k}">${v}</button>`).join('')}</div></div>
     <div class="card"><button class="icon-btn card-help" data-settings-help="session" aria-label="Hilfe zu Sitzungsstandard">?</button><h2>Sitzungsstandard</h2><p>Diese Werte werden vorgeschlagen, wenn eine neue Wort-Sitzung beginnt.</p><div class="field"><label>Wörter gleichzeitig</label><select id="setAmount">${[1,2,3,4,5,6].map(n=>`<option>${n}</option>`).join('')}</select></div><label class="toggle"><input id="setEndless" type="checkbox"> Nach dem letzten Wort wieder von vorne beginnen</label></div>
     <div class="card"><button class="icon-btn card-help" data-settings-help="stories" aria-label="Hilfe zu Bildergeschichten">?</button><h2>Bildergeschichten</h2><p>Die Bilddateien hatten keine eindeutigen Dateinamen. Hier kannst du die richtigen Titel einmal zuordnen.</p><div class="toolbar"><button class="secondary-btn" id="storyTitles">Titel zuordnen</button></div></div>
-    <div class="card"><button class="icon-btn card-help" data-settings-help="data" aria-label="Hilfe zu Daten">?</button><h2>Daten & Geräte</h2><p>Ein <strong>WortZeit-Datenpaket</strong> ist gleichzeitig Backup und Geräteübertragung. Es enthält deine eigenen Listen, Ordnerzuordnungen, Patienten, Pläne, Einstellungen und Aufnahmen.</p><div class="data-inventory"><strong>${state.userLists.length}</strong><span>eigene/importierte Listen</span><strong>${state.userLists.reduce((n,L)=>n+(L.items?.length||0),0)}</strong><span>Einträge</span><strong>${knownFolders().length}</strong><span>Ordner</span></div><div class="offline-readiness" id="offlineReadiness"><strong>Offline</strong><span>${navigator.onLine?'Online geöffnet · Offline-Kopie kann vorbereitet werden':'Du arbeitest gerade offline'}</span></div><div class="toolbar"><button class="secondary-btn" id="showIntroSettings">Kurze Einführung</button><button class="secondary-btn" id="browserCheck">Browser prüfen</button><button class="secondary-btn" id="offlinePrepare">Offline vorbereiten</button><button class="secondary-btn" id="backupState">Datenpaket speichern</button><button class="secondary-btn" id="shareState">Datenpaket teilen</button><button class="secondary-btn" id="restoreState">Datenpaket öffnen</button><button class="danger-btn" id="resetState">Testdaten zurücksetzen</button></div><input id="restoreStatePicker" type="file" accept=".wortzeit,.json" hidden></div>
+    <div class="card"><button class="icon-btn card-help" data-settings-help="data" aria-label="Hilfe zu Daten">?</button><h2>Daten & Geräte</h2><p>Ein <strong>WortZeit-Datenpaket</strong> ist gleichzeitig vollständige lokale Sicherung und Geräteübertragung. Es enthält <strong>alle im Programm erstellten und importierten Listen</strong>, Ordnerzuordnungen, Patienten, Pläne, Einstellungen, Prüfstatus und Aufnahmen.</p><div class="data-inventory"><strong>${state.userLists.length}</strong><span>eigene Listen gesamt</span><strong>${state.userLists.filter(L=>(L.origin||(!L.sourcePath?'created':'imported'))==='created').length}</strong><span>davon manuell erstellt</span><strong>${state.userLists.reduce((n,L)=>n+(L.items?.length||0),0)}</strong><span>Einträge</span><strong>${knownFolders().length}</strong><span>Ordner</span><strong>${state.patients.length}</strong><span>Patienten</span><strong>${state.plans.length}</strong><span>Therapiepläne</span></div><div class="offline-readiness" id="offlineReadiness"><strong>Offline</strong><span>${navigator.onLine?'Online geöffnet · Offline-Kopie kann vorbereitet werden':'Du arbeitest gerade offline'}</span></div><div class="toolbar"><button class="secondary-btn" id="showIntroSettings">Kurze Einführung</button><button class="secondary-btn" id="browserCheck">Browser prüfen</button><button class="secondary-btn" id="offlinePrepare">Offline vorbereiten</button><button class="secondary-btn" id="backupState">Datenpaket speichern</button><button class="secondary-btn" id="shareState">Datenpaket teilen</button><button class="secondary-btn" id="restoreState">Datenpaket öffnen</button><button class="danger-btn" id="resetState">Testdaten zurücksetzen</button></div><input id="restoreStatePicker" type="file" accept=".wortzeit,.json" hidden></div>
   </div>`;
   $('#setLang').value=s.lang;$('#setAmount').value=s.itemsPerScreen;$('#setEndless').checked=s.endless;
   $('#setLang').onchange=e=>{s.lang=e.target.value;saveState();applyI18n();renderSettings();};
@@ -1272,13 +1371,40 @@ function renderSettings(){
     ];
     helpModal('Browser prüfen',`<p>Die Kernfunktionen laufen in modernen Browsern. Einzelne Komfortfunktionen können je nach Browser fehlen.</p><div class="browser-check-list">${checks.map(([n,ok])=>`<div class="browser-check-row"><strong>${ok?'✓':'–'} ${esc(n)}</strong><span>${ok?'verfügbar':'Fallback verwenden'}</span></div>`).join('')}</div><p class="small muted">Wenn „Ganzen Ordner auswählen“ fehlt, kannst du mehrere Dateien gleichzeitig markieren. Wenn OpenDocument fehlt, importiere ODT/ODS einmal auf einem anderen aktuellen Browser oder speichere die Datei als RTF/TXT.</p>`);
   });
+  const listOriginKind=L=>L.origin||(!L.sourcePath?'created':(/^Kopie von /.test(L.sourcePath||'')?'copied':'imported'));
+  const stateManifest=snapshot=>({
+    stateVersion:snapshot.version||0,
+    listCount:snapshot.userLists.length,
+    manualListCount:snapshot.userLists.filter(L=>listOriginKind(L)==='created').length,
+    importedListCount:snapshot.userLists.filter(L=>listOriginKind(L)==='imported').length,
+    copiedListCount:snapshot.userLists.filter(L=>listOriginKind(L)==='copied').length,
+    itemCount:snapshot.userLists.reduce((n,L)=>n+(L.items?.length||0),0),
+    contentChars:snapshot.userLists.reduce((n,L)=>n+(L.items||[]).reduce((m,it)=>m+String(it.text||'').length,0),0),
+    folderCount:[...new Set(snapshot.userLists.flatMap(listFolders))].length,
+    folderAssignmentCount:snapshot.userLists.reduce((n,L)=>n+listFolders(L).length,0),
+    patientCount:snapshot.patients.length,
+    planCount:snapshot.plans.length,
+    reviewBatchCount:(snapshot.importReviewBatches||[]).length,
+    ignoredDuplicateGroupCount:(snapshot.duplicateIgnoreGroups||[]).length,
+    audioCount:0
+  });
+  const verifyPackageObject=(payload,expected)=>{
+    if(!payload?.state||!Array.isArray(payload.state.userLists))throw new Error('Datenpaket konnte intern nicht verifiziert werden.');
+    const actual=stateManifest(payload.state);actual.audioCount=Object.keys(payload.audio||{}).length;
+    for(const key of ['listCount','manualListCount','importedListCount','copiedListCount','itemCount','contentChars','folderCount','folderAssignmentCount','patientCount','planCount','audioCount'])if(Object.prototype.hasOwnProperty.call(expected,key)&&Number(expected[key]||0)!==Number(actual[key]||0))throw new Error(`Datenpaket-Prüfung fehlgeschlagen (${key}).`);
+    const ids=payload.state.userLists.map(L=>L.id);if(new Set(ids).size!==ids.length)throw new Error('Datenpaket enthält doppelte interne Listen-IDs.');
+    return actual;
+  };
   const makeDataPackage=async()=>{
-    await flushStateSave();const entries=await audioAllEntries(),audio={};for(const [key,blob] of entries){if(blob instanceof Blob)audio[key]={type:blob.type||'audio/webm',data:await blobToBase64(blob)};}
-    const snapshot=cloneData(state);normalizeAllUserLists(snapshot);const manifest={listCount:snapshot.userLists.length,itemCount:snapshot.userLists.reduce((n,L)=>n+(L.items?.length||0),0),folderCount:[...new Set(snapshot.userLists.flatMap(listFolders))].length,patientCount:snapshot.patients.length,planCount:snapshot.plans.length,audioCount:Object.keys(audio).length};
-    const payload={format:'wortzeit-local-backup',version:3,createdAt:new Date().toISOString(),manifest,state:snapshot,audio};const raw=JSON.stringify(payload,null,2);return {payload,raw,blob:new Blob([raw],{type:'application/json'}),manifest};
+    await flushStateSave();
+    const entries=await audioAllEntries(),audio={};for(const [key,blob] of entries){if(blob instanceof Blob)audio[key]={type:blob.type||'audio/webm',data:await blobToBase64(blob)};}
+    const snapshot=cloneData(state);normalizeAllUserLists(snapshot);const manifest=stateManifest(snapshot);manifest.audioCount=Object.keys(audio).length;
+    const payload={format:'wortzeit-local-backup',version:4,createdAt:new Date().toISOString(),manifest,state:snapshot,audio};
+    const raw=JSON.stringify(payload,null,2),roundTrip=JSON.parse(raw);verifyPackageObject(roundTrip,manifest);
+    return {payload,raw,blob:new Blob([raw],{type:'application/json'}),manifest};
   };
   const dataPackageFilename=()=>`WortZeit_Datenpaket_${new Date().toISOString().slice(0,10)}.wortzeit`;
-  const packageSummary=(m,bytes=0)=>`${m.listCount} Listen · ${m.itemCount} Einträge · ${m.folderCount} Ordner · ${m.audioCount} Aufnahmen${bytes?` · ${(bytes/1024/1024).toFixed(bytes>1024*1024?1:2)} MB`:''}`;
+  const packageSummary=(m,bytes=0)=>`${m.listCount} Listen (${m.manualListCount||0} manuell) · ${m.itemCount} Einträge · ${m.folderCount} Ordner · ${m.patientCount||0} Patienten · ${m.planCount||0} Pläne · ${m.audioCount} Aufnahmen${bytes?` · ${(bytes/1024/1024).toFixed(bytes>1024*1024?1:2)} MB`:''}`;
   $('#backupState').onclick=async()=>{const btn=$('#backupState'),label=btn.textContent;btn.disabled=true;btn.textContent='Datenpaket wird erstellt …';try{const pack=await makeDataPackage();downloadBlob(dataPackageFilename(),pack.blob);toast(`Datenpaket gespeichert · ${packageSummary(pack.manifest,pack.blob.size)}`);}catch(err){console.warn(err);toast('Datenpaket konnte nicht erstellt werden');}finally{btn.disabled=false;btn.textContent=label;}};
   $('#shareState').onclick=async()=>{const btn=$('#shareState'),label=btn.textContent;btn.disabled=true;btn.textContent='Wird vorbereitet …';try{const pack=await makeDataPackage(),file=new File([pack.blob],dataPackageFilename(),{type:'application/json'});if(navigator.share&&navigator.canShare?.({files:[file]})){await navigator.share({title:'WortZeit Datenpaket',text:'WortZeit-Daten auf ein anderes Gerät übertragen',files:[file]});toast(`Datenpaket bereit · ${packageSummary(pack.manifest,pack.blob.size)}`);}else{downloadBlob(file.name,pack.blob);toast('Direktes Teilen unterstützt dieser Browser nicht. Das Datenpaket wurde stattdessen gespeichert.');}}catch(err){if(err?.name!=='AbortError'){console.warn(err);toast('Datenpaket konnte nicht geteilt werden');}}finally{btn.disabled=false;btn.textContent=label;}};
   $('#offlinePrepare').onclick=async()=>{const btn=$('#offlinePrepare'),label=btn.textContent;btn.disabled=true;btn.textContent='Offline wird vorbereitet …';try{if(!('serviceWorker' in navigator)||!('caches' in window))throw new Error('Dieser Browser unterstützt den Offline-Speicher nicht.');const reg=await navigator.serviceWorker.ready;await reg.update().catch(()=>{});if(navigator.storage?.persist){try{await navigator.storage.persist();}catch{}}const cache=await caches.open(OFFLINE_CACHE);await cache.addAll(OFFLINE_SHELL);const checks=await Promise.all(OFFLINE_SHELL.map(u=>cache.match(u)));if(checks.some(x=>!x))throw new Error('Nicht alle App-Dateien wurden gespeichert.');$('#offlineReadiness').innerHTML='<strong>Offline bereit</strong><span>WortZeit kann in diesem Browser nach dem ersten Online-Start auch ohne Internet geöffnet werden.</span>';toast('Offline-Kopie vollständig vorbereitet');}catch(err){console.warn(err);toast(err.message||'Offline-Kopie konnte nicht vorbereitet werden');}finally{btn.disabled=false;btn.textContent=label;}};
@@ -1287,8 +1413,10 @@ function renderSettings(){
     const file=e.target.files?.[0];if(!file)return;
     try{
       const obj=JSON.parse((await readFileText(file)).replace(/^\uFEFF/,''));if(obj?.format!=='wortzeit-local-backup'||!obj.state)throw new Error('Kein WortZeit-Datenpaket');
-      const parsed=obj.state,actualLists=Array.isArray(parsed.userLists)?parsed.userLists.length:0,actualItems=(parsed.userLists||[]).reduce((n,L)=>n+(L.items?.length||0),0);if(obj.manifest&&(obj.manifest.listCount!==actualLists||obj.manifest.itemCount!==actualItems))throw new Error('Das Datenpaket ist unvollständig oder beschädigt.');
-      const summary=obj.manifest||{listCount:actualLists,itemCount:actualItems,folderCount:[...new Set((parsed.userLists||[]).flatMap(listFolders))].length,patientCount:(parsed.patients||[]).length,planCount:(parsed.plans||[]).length,audioCount:Object.keys(obj.audio||{}).length};
+      const parsed=obj.state,actualLists=Array.isArray(parsed.userLists)?parsed.userLists.length:0,actualItems=(parsed.userLists||[]).reduce((n,L)=>n+(L.items?.length||0),0);
+      const summary=obj.manifest||{...stateManifest(normalizeLoadedState(parsed)),audioCount:Object.keys(obj.audio||{}).length};
+      if(obj.manifest){const checkState=normalizeLoadedState(parsed);normalizeAllUserLists(checkState);verifyPackageObject({state:checkState,audio:obj.audio||{}},obj.manifest);}
+      if(actualLists!==summary.listCount||actualItems!==summary.itemCount)throw new Error('Das Datenpaket ist unvollständig oder beschädigt.');
       if(!confirm(`Dieses WortZeit-Datenpaket laden?\n\n${packageSummary(summary,file.size)}\n\nDie lokalen WortZeit-Daten dieses Browsers werden durch diesen Stand ersetzt.`))return;
       const next=normalizeLoadedState(parsed);normalizeAllUserLists(next);migrateImportReviewState(next);
       let restoredAudio=0;if(obj.version>=2&&obj.audio&&typeof obj.audio==='object'){await audioClearAll();for(const [key,a] of Object.entries(obj.audio)){try{await audioSet(key,base64ToBlob(a.data,a.type));restoredAudio++;}catch(err){console.warn('Audio restore failed',key,err);}}}
@@ -1304,7 +1432,7 @@ function settingsHelp(which){
     design:['Design','Hier änderst du nur das Aussehen der App. Tippe auf ein Design und du siehst die Änderung sofort. Wähle einfach die Variante, die für dich und den Patienten am angenehmsten zu lesen ist.'],
     session:['Sitzungsstandard','Hier legst du fest, mit wie vielen Wörtern eine neue Wort-Sitzung normalerweise startet. „Wieder von vorne“ bedeutet: Nach dem letzten Wort beginnt die Liste erneut. Du kannst diese Werte später in jeder Sitzung noch ändern.'],
     stories:['Bildergeschichten','Die gelieferten Bilder heißen nur nach Aufnahmedatum. Deshalb zeigt die App zunächst neutrale Namen wie „Bildergeschichte 01“. Mit „Titel zuordnen“ kannst du anhand der Bildvorschau den passenden Titel auswählen. Die Zuordnung wird gespeichert.'],
-    data:['Daten & Geräte','„Datenpaket speichern“ erstellt eine vollständige portable WortZeit-Datei mit eigenen Listen, Mehrfach-Ordnerzuordnungen, Spielzuordnungen, Import-Prüfstatus, Patienten, Therapieplänen, Einstellungen und Aufnahmen. Genau dieselbe Datei kannst du auf Laptop, Handy oder Tablet über „Datenpaket öffnen“ laden. „Offline vorbereiten“ speichert die App-Dateien dieses Browsers, damit WortZeit nach einem erfolgreichen ersten Online-Start auch ohne Internet geöffnet werden kann. Browser-Berechtigungen wie Mikrofonfreigabe gehören nicht zum Datenpaket.']
+    data:['Daten & Geräte','„Datenpaket speichern“ erstellt eine vollständige portable WortZeit-Datei mit allen manuell erstellten und importierten eigenen Listen, Mehrfach-Ordnerzuordnungen, Spielzuordnungen, Import-Prüfstatus, Duplikatentscheidungen, Patienten, Therapieplänen, Einstellungen und Aufnahmen. Genau dieselbe Datei kannst du auf Laptop, Handy oder Tablet über „Datenpaket öffnen“ laden. „Offline vorbereiten“ speichert die App-Dateien dieses Browsers, damit WortZeit nach einem erfolgreichen ersten Online-Start auch ohne Internet geöffnet werden kann. Browser-Berechtigungen wie Mikrofonfreigabe gehören nicht zum Datenpaket.']
   };
   const [title,body]=info[which]||['Einstellungen','Hier kannst du die App an deine Arbeitsweise anpassen.'];
   helpModal(title,`<p>${body}</p>`);
@@ -1334,7 +1462,7 @@ function renderPatientWelcome(pkg){
 async function loadSpeechpackFile(file,addToPlans=false){
   try{const text=await file.text();const pkg=JSON.parse(text.replace(/^\uFEFF/,''));if(pkg.format!=='wortzeit-speechpack'||!Array.isArray(pkg.steps))throw new Error('wrong format');
     if(pkg.audio){for(const [key,a] of Object.entries(pkg.audio)){try{await audioSet(key,base64ToBlob(a.data,a.type));}catch{}}}
-    if(addToPlans){const listIdMap=new Map();for(const L of pkg.lists||[]){let existing=allLists().find(x=>x.id===L.id);if(!existing){state.userLists.push(normalizeListStorage({...L,bundled:false,category:`Import · ${pkg.title}`}));existing=L;}listIdMap.set(L.id,existing.id);}const plan={id:uid('plan'),title:pkg.title||'Importierter Plan',steps:pkg.steps.map(s=>{const ids=(s.listIds?.length?s.listIds:[s.listId]).filter(Boolean).map(id=>listIdMap.get(id)||id);return {...s,listId:ids[0]||s.listId,listIds:ids};})};state.plans.push(plan);saveState();renderPlans();toast('Therapieplan importiert');return;}
+    if(addToPlans){const listIdMap=new Map();for(const L of pkg.lists||[]){let existing=allLists().find(x=>x.id===L.id);if(!existing){state.userLists.push(normalizeListStorage({...L,bundled:false,origin:'package',category:`Import · ${pkg.title}`}));existing=L;}listIdMap.set(L.id,existing.id);}const plan={id:uid('plan'),title:pkg.title||'Importierter Plan',steps:pkg.steps.map(s=>{const ids=(s.listIds?.length?s.listIds:[s.listId]).filter(Boolean).map(id=>listIdMap.get(id)||id);return {...s,listId:ids[0]||s.listId,listIds:ids};})};state.plans.push(plan);saveState();renderPlans();toast('Therapieplan importiert');return;}
     importedPatientPackage=pkg;patientMode=true;document.body.classList.add('patient-mode');if(pkg.settings){state.settings={...state.settings,...pkg.settings};applyTheme();}activePlanRun=null;renderPatientWelcome(pkg);
   }catch(e){console.error(e);toast('Diese Datei ist kein gültiges WortZeit-Therapiepaket.');}
 }
@@ -1343,20 +1471,20 @@ async function loadSpeechpackFile(file,addToPlans=false){
 function contextualHelp(){
   const map={
     home:['Start','Wähle eine Liste oder starte direkt mit den Standardwörtern. Danach kannst du eine Wort-Sitzung, ein Spiel oder einen vorbereiteten Therapieplan öffnen.'],
-    session:['Sitzung','Das große Wort ist die Übung. Tippe auf die Wortfläche oder auf → für das nächste Wort. Mit ← gehst du zurück. „↺ Anfang“ springt zum Beginn dieser Runde. Mit ▶ läuft die Liste automatisch. Die Helligkeit oben verändert den Hintergrund sofort.'],
-    lists:['Listen','Hier wählst und pflegst du dein Material. Ordner bleiben zunächst geschlossen und lassen sich durch Anklicken auf- und zuklappen. Nach einem Import öffnet sich „Import prüfen“ mit genau den neuen Listen, dem erkannten Typ, Trennzeichen und den passenden Spielen. Neu oder unklar erkannte Listen bleiben markiert, bis du sie als geprüft bestätigst. „Alle schließen“ bringt die Ordneransicht jederzeit wieder in einen ruhigen Zustand. Öffne eine Liste und wähle „Liste bearbeiten“, um Text, A/B-Typ, Eintrags- und Silbentrenner, Spielzuordnungen und mehrere Ordner zu ändern. Eine Liste darf gleichzeitig in mehreren Therapie-Ordnern erscheinen. Du kannst sie außerdem per Drag & Drop auf einen vorhandenen Ordner ziehen. Im Editor wechselst du zwischen einer aufgelisteten und einer unformatierten Rohansicht.'],
+    session:['Sitzung','Das große Wort oder der Satz ist die Übung. Tippe auf die Wortfläche für den nächsten Eintrag; mit ← und → gehst du innerhalb der aktuellen Reihenfolge zurück oder vor. „↺ Anfang“ springt zum Beginn dieser Runde, ▶ startet die automatische Anzeige. Oben kannst du Helligkeit und mit „Aa“ die gewünschte Schriftgröße direkt verändern. WortZeit verkleinert sehr lange Texte trotzdem automatisch so weit, dass nichts abgeschnitten wird.'],
+    lists:['Listen','Hier wählst und pflegst du dein Material. Ordner bleiben zunächst geschlossen und lassen sich durch Anklicken auf- und zuklappen. Nach einem Import zeigt „Import prüfen“ genau die neuen Listen mit erkanntem Typ, Trennzeichen, Eintragszahl und passenden Spielen. Neu oder unklar erkannte Listen bleiben markiert, bis du sie bestätigst. „Alle schließen“ bringt die Ansicht jederzeit wieder in einen ruhigen Zustand. Öffne eine Liste und wähle „Liste bearbeiten“, um Text, A/B-Typ, Eintrags- und Silbentrenner, Spielzuordnungen und mehrere Therapie-Ordner zu ändern. Das × an einem Ordner entfernt nur diese Zuordnung; die Liste selbst bleibt erhalten und landet beim letzten entfernten Ordner unter „Unsortiert“. Eine Liste kann gleichzeitig in mehreren Ordnern erscheinen und auch per Drag & Drop einem weiteren Ordner zugewiesen werden. „Aufgelistet“ eignet sich zum einzelnen Korrigieren, „Unformatiert“ zum Einfügen größerer Textblöcke. „Duplikate prüfen“ meldet nur Listen, deren gespeicherter therapeutischer Inhalt 1:1 identisch ist. Es wird niemals automatisch gelöscht. Beim manuellen Zusammenführen werden Ordner, Spielzuordnungen, Patienten- und Therapieplan-Verknüpfungen auf die behaltene Liste übernommen; konkurrierende Aufnahmen werden nicht still überschrieben. Manuell im Programm erstellte Listen werden genauso wie importierte Listen im WortZeit-Datenpaket gesichert.'],
     games:['Spiele','Wähle einfach ein Spiel. Wenn noch keine passende Liste gewählt ist, fragt WortZeit direkt beim Öffnen danach – du musst nicht erst zurück in die Listenverwaltung. Im Spiel kannst du die Liste oben jederzeit wieder wechseln. ? erklärt das Spiel, × oder Escape beendet es.'],
     patients:['Patienten','Hier kannst du einen einfachen Anzeigenamen anlegen und passende Listen zuordnen. So findest du das vorbereitete Material später schneller wieder.'],
-    plans:['Therapiepläne','Ein Therapieplan verbindet mehrere Übungen in einer festen Reihenfolge. Du kannst ihn selbst starten oder als .speechpack-Datei weitergeben. Mit den Pfeilen änderst du die Reihenfolge der Schritte.'],
+    plans:['Therapiepläne','Ein Therapieplan verbindet mehrere Übungen in einer festen Reihenfolge. Du kannst ihn selbst starten oder als .speechpack-Datei für den Patientenplayer weitergeben. Benötigte Listen und vorhandene Aufnahmen der verwendeten Einträge werden in das Therapiepaket übernommen. Mit den Pfeilen änderst du die Reihenfolge der Schritte. Das .speechpack ist nur die vorbereitete Patientenübung – dein kompletter WortZeit-Arbeitsstand wird separat unter „Daten & Geräte“ als Datenpaket gesichert.'],
     letters:['Buchstaben','Baue das gesuchte Wort aus den Buchstaben unten. Du kannst einen Buchstaben antippen oder direkt auf eine beliebige freie Stelle ziehen. Bereits gesetzte Buchstaben lassen sich oben per Drag & Drop tauschen. Antippen entfernt einen gesetzten Buchstaben wieder. „Reset“ leert nur die aktuelle Lösung.<br><br><strong>Wofür gedacht:</strong> Wörter bewusst Buchstabe für Buchstabe zusammensetzen und ihre Reihenfolge bearbeiten.'],
     memory:['Memory','Zuerst wählst du Memory-Art, 8/12/16/24 Karten und 1 oder 2 Spieler. Danach startet das Spielfeld mit möglichst großen quadratischen Karten. Bei Audio-Memory wird das Wort mit der bereits in der Aufnahmebank gespeicherten Aufnahme gepaart und beim Umdrehen abgespielt. Mit „Paar halten AN“ bleiben zwei Karten offen, bis du „Weiter“ drückst.<br><br><strong>Wofür gedacht:</strong> Begriffe, Bilder oder gehörte Wörter miteinander in Beziehung setzen und wiedererkennen.'],
-    sorting:['Sortieren','Lies links die Hinweise. Rechts liegen die möglichen Antworten. Tippe eine Antwort an und danach das passende Feld – oder ziehe sie direkt dorthin. Bereits gesetzte Antworten kannst du ebenfalls verschieben. Wenn alles gefüllt ist, drücke oben rechts auf „Prüfen“. Über das Feld „Übung“ oben kannst du ein bestimmtes Rätsel direkt auswählen. „Reset“ leert die Felder, „Nächstes“ öffnet ein anderes Rätsel.<br><br><strong>Wofür gedacht:</strong> Hinweise nacheinander aufnehmen, Zusammenhänge herstellen und Informationen passend zuordnen.'],
-    story:['Bildergeschichte','Bringe die vier Bilder in die richtige Reihenfolge. Du kannst zwei Bilder antippen oder sie ziehen. Sobald die Reihenfolge stimmt, erkennt WortZeit das automatisch – die Geschichte bleibt aber stehen. Erst mit „Weiter“ öffnest du die nächste, damit vorher in Ruhe darüber gesprochen werden kann.<br><br><strong>Wofür gedacht:</strong> Eine Handlung zeitlich ordnen und anschließend in eigenen Worten beschreiben oder erzählen.'],
+    sorting:['Sortieren','Links bleiben die Hinweise. Rechts ist der Arbeitsbereich: oben die Zielkategorien, direkt darunter die verfügbaren Antworten. Tippe eine Antwort an und danach das passende Feld – oder ziehe sie direkt dorthin. Bereits gesetzte Antworten kannst du wieder verschieben. Der große hervorgehobene „Prüfen“-Knopf oben ist die Hauptaktion. Über „Übung“ kannst du ein bestimmtes Rätsel direkt auswählen; mit „← Aufgabe“ springst du zur vorherigen Aufgabe zurück. Reset leert nur die aktuelle Lösung.<br><br><strong>Wofür gedacht:</strong> Hinweise nacheinander aufnehmen, Zusammenhänge herstellen und Informationen passend zuordnen.'],
+    story:['Bildergeschichte','Bringe die vier Bilder in die richtige Reihenfolge. Du kannst zwei Bilder antippen oder sie ziehen. Sobald die Reihenfolge stimmt, erkennt WortZeit das automatisch – die Geschichte bleibt stehen, bis du den großen „Weiter“-Knopf drückst. Mit „← Aufgabe“ kannst du auch zur vorherigen Bildergeschichte zurückspringen und sie noch einmal besprechen.<br><br><strong>Wofür gedacht:</strong> Eine Handlung zeitlich ordnen und anschließend in eigenen Worten beschreiben oder erzählen.'],
     choiceStory:['Geschichte bauen','Lies den Satzanfang und wähle eine der vier Möglichkeiten. Es gibt hier bewusst kein Richtig oder Falsch. Deine Auswahl wird direkt an den Satz angefügt und bleibt Teil der Geschichte. Mit „Weiter“ gehst du zum nächsten Satz. Am Ende könnt ihr eure komplette Geschichte noch einmal lesen.<br><br><strong>Wofür gedacht:</strong> Sprache, Entscheidungen, Humor und gemeinsames Erzählen in einer fortlaufenden Situation verbinden.'],
-    wheel:['Wortwalze','Drücke „Drehen“. Die Wörter laufen von oben nach unten durch eine große Walze. Du kannst Tempo und Schriftgröße einstellen. Entscheidend ist das Loslassen: Das Wort, das beim Loslassen unter dem Zeiger liegt, wird oben gesammelt. So musst du auch bei hoher Geschwindigkeit nicht exakt auf ein bewegtes Wort klicken.<br><br><strong>Wofür gedacht:</strong> Aus zufällig auftauchenden Begriffen spontan Sätze, Zusammenhänge oder kleine Geschichten bilden.'],
-    syllables:['Silben','Die sechs Silben liegen groß und in Großbuchstaben genau an den sechs Eckpunkten des Hexagons. Sie stammen aus vollständigen Wörtern. Tippe oder ziehe sie nach oben; dort kannst du sie umsortieren. Sobald ein Wort erkannt wird, erscheint es groß in der Mitte. Reset leert die Auswahl, Mischen erzeugt eine neue Runde.<br><br><strong>Wofür gedacht:</strong> Silben in einer stabilen räumlichen Anordnung auswählen und schrittweise zu einem Wort zusammensetzen.'],
-    semantic:['Wortnetz','In der Mitte steht ein Begriff. Die sechs Felder außen geben einfache Gesprächsimpulse: Kategorie, Verwendung, Ort, Eigenschaften, Aussehen/Teile und Verbindungen. Tippt die Felder an, wenn ihr sie gemeinsam bearbeitet habt. Es gibt keine automatische Bewertung.<br><br><strong>Wofür gedacht:</strong> Einen Begriff über seine Bedeutung und Beziehungen ausführlich beschreiben und dadurch verschiedene sprachliche Zugänge anbieten.'],
-    settings:['Einstellungen','Hier stellst du Sprache, Aussehen und wenige Startwerte ein. „Design“ verändert die App sofort. „Sitzungsstandard“ bestimmt nur, wie eine neue Wort-Sitzung normalerweise beginnt. Unter „Daten & Geräte“ kannst du deinen kompletten vorbereiteten Stand als WortZeit-Datenpaket sichern oder auf ein anderes Gerät übertragen und WortZeit für Offline-Arbeit vorbereiten. Für die Bildergeschichten kannst du hier außerdem die richtigen Titel anhand einer Vorschau zuordnen.']
+    wheel:['Wortwalze','Drücke „Drehen“. Die Wörter laufen von oben nach unten durch die große Walze. Tempo und Schriftgröße sind frei einstellbar; die bisherige große Standardschrift liegt ungefähr in der Mitte des Reglers. Entscheidend ist das Loslassen: Das Wort unter dem Zeiger wird oben gesammelt. Die gesammelten Wörter kannst du mit Maus, Finger oder Stift per Ziehen untereinander umsortieren; ein kurzes Antippen entfernt ein Wort wieder.<br><br><strong>Wofür gedacht:</strong> Aus zufällig auftauchenden Begriffen spontan Sätze, Zusammenhänge oder kleine Geschichten bilden und ihre Reihenfolge gemeinsam verändern.'],
+    syllables:['Silben','Die sechs Silben liegen groß und in Großbuchstaben an den sechs Punkten des Hexagons. Tippe oder ziehe sie in den Arbeitsbereich und ordne sie dort bei Bedarf neu. Eine bekannte gültige Kombination wird als großes Wort in der Mitte erkannt. Kennt WortZeit eine andere sinnvolle Kombination nicht, wird sie deshalb nicht als falsch bewertet. Reset leert nur deine Auswahl, Mischen erzeugt eine neue Runde.<br><br><strong>Wofür gedacht:</strong> Silben in einer stabilen räumlichen Anordnung auswählen und schrittweise zu Wörtern zusammensetzen.'],
+    semantic:['Wortnetz','In der Mitte steht ein Begriff aus der aktuell gewählten Liste. Wenn eine eigene Liste aktiv ist, verwendet Wortnetz keine heimlichen Zufallswörter aus dem Fallback. Die sechs Felder außen geben Gesprächsimpulse: Kategorie, Verwendung, Ort, Eigenschaften, Aussehen/Teile und Verbindungen. Tippt die Felder an, wenn ihr sie gemeinsam bearbeitet habt. Über die Materialauswahl oben kannst du die Liste direkt wechseln. Es gibt keine automatische Bewertung.<br><br><strong>Wofür gedacht:</strong> Einen Begriff über seine Bedeutung und Beziehungen ausführlich beschreiben und dadurch verschiedene sprachliche Zugänge anbieten.'],
+    settings:['Einstellungen','Hier stellst du Sprache, Aussehen und Startwerte ein. „Design“ verändert die App sofort. „Sitzungsstandard“ bestimmt, wie eine neue Wort-Sitzung normalerweise beginnt. Unter „Daten & Geräte“ siehst du vor dem Export die Zahl deiner eigenen Listen, Einträge, Ordner, Patienten und Therapiepläne. Das WortZeit-Datenpaket sichert den kompletten lokalen Arbeitsstand einschließlich manuell erstellter und importierter Listen, Mehrfach-Ordnerzuordnungen, Prüf- und Duplikatentscheidungen, Einstellungen und Aufnahmen. Beim Erstellen und Öffnen prüft WortZeit die enthaltenen Mengen auf Vollständigkeit. Mit derselben Datei kannst du den Stand auf Laptop, Handy oder Tablet übertragen. „Offline vorbereiten“ macht die App nach erfolgreicher Vorbereitung im selben Browser auch ohne Internet startbar.']
   };
   const [title,body]=map[route]||map.home;
   helpModal(title,`<p>${body}</p>`);
@@ -1369,7 +1497,7 @@ function clickDefaultAction(){
 }
 
 // ---------- Service worker ----------
-if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.8.0',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
+if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.8.3',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
 
 // ---------- Global events/init ----------
 try{history.replaceState({wz:true,route:'home',depth:0},'',location.href);}catch{}
