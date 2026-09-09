@@ -7,8 +7,8 @@ const AUDIO_DB = 'wortzeit_audio_v1';
 const STATE_DB = 'wortzeit_state_v1';
 const STATE_STORE = 'app';
 const STATE_KEY = 'state';
-const OFFLINE_CACHE = 'wortzeit-v0.8.4';
-const OFFLINE_SHELL = ['./','./index.html','./app.html','./behandler.html','./patient.html','./styles.css?v=0.8.4','./data.js?v=0.8.4','./app.js?v=0.8.4','./manifest-patient.webmanifest','./manifest-therapist.webmanifest'];
+const OFFLINE_CACHE = 'wortzeit-v0.8.5';
+const OFFLINE_SHELL = ['./','./index.html','./app.html','./behandler.html','./patient.html','./styles.css?v=0.8.5','./data.js?v=0.8.5','./app.js?v=0.8.5','./manifest-patient.webmanifest','./manifest-therapist.webmanifest'];
 const $ = (sel, root=document) => root.querySelector(sel);
 const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 const esc = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
@@ -46,10 +46,23 @@ const DEFAULT_STATE = {
 
 let stateStorageMode='idb';
 let stateStorageWarning='';
+// Persistence primitives must exist before any migration is allowed to save.
+// This keeps a completely fresh browser profile on the same safe boot path as an existing installation.
+let stateSaveTimer=null;
+let stateSaveChain=Promise.resolve();
+let pendingStateSnapshot=null;
+window.__WZ_BOOT_PHASE='state-load';
 let state = await loadState();
+window.__WZ_BOOT_PHASE='state-normalize';
 normalizeAllUserLists(state);
 const importReviewChanged=migrateImportReviewState(state);
-if(importReviewChanged) saveState();
+if(importReviewChanged){
+  // Migrations are committed synchronously during bootstrap. Do not route them through
+  // the debounced runtime saver before the persistence subsystem is fully initialized.
+  state.storageUpdatedAt=Date.now();
+  await persistStateSnapshot(cloneData(state));
+}
+window.__WZ_BOOT_PHASE='runtime-init';
 let route = 'home';
 let session = null;
 let game = {};
@@ -116,7 +129,6 @@ async function loadState(){
   }else parsed=localParsed;
   return normalizeLoadedState(parsed);
 }
-let stateSaveTimer=null,stateSaveChain=Promise.resolve(),pendingStateSnapshot=null;
 function writeLegacyFallback(snapshot){
   try{localStorage.setItem(STORAGE_KEY,JSON.stringify(snapshot));return true;}catch(e){console.warn('localStorage fallback failed',e);return false;}
 }
@@ -1527,9 +1539,13 @@ function clickDefaultAction(){
 }
 
 // ---------- Service worker ----------
-if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.8.4',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
+if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.8.5',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
 
 // ---------- Global events/init ----------
+window.__WZ_BOOT_PHASE='ui-bind';
+const requiredBootIds=['menuButton','closeDrawer','scrim','helpButton','patientModeButton','currentListButton','navBackButton','navForwardButton','view','toast','modalRoot','drawer'];
+const missingBootIds=requiredBootIds.filter(id=>!document.getElementById(id));
+if(missingBootIds.length)throw new Error(`UI unvollständig: ${missingBootIds.join(', ')}`);
 try{history.replaceState({wz:true,route:'home',depth:0},'',location.href);}catch{}
 $('#menuButton').onclick=openDrawer;$('#closeDrawer').onclick=closeDrawer;$('#scrim').onclick=closeDrawer;$('#helpButton').onclick=contextualHelp;$('#patientModeButton').onclick=enterPatientMode;$('.brand').onclick=()=>{if(!patientMode)nav('home');};$('.brand').onkeydown=e=>{if(!patientMode&&(e.key==='Enter'||e.key===' '))nav('home');};$$('.drawer-nav [data-route]').forEach(b=>b.onclick=()=>nav(b.dataset.route));$('#currentListButton').onclick=()=>nav('lists');
 $('#navBackButton')?.addEventListener('click',navigationBack);$('#navForwardButton')?.addEventListener('click',navigationForward);window.addEventListener('popstate',handleHistoryPop);
@@ -1538,10 +1554,13 @@ window.addEventListener('beforeunload',()=>{stopAutoplay();if(pendingStateSnapsh
 window.addEventListener('resize',()=>{if(route==='memory'&&game.memoryStage==='play')fitMemoryBoard();if(route==='story')fitStoryBoard();if(route==='wheel')fitWheelGeometry();if(route==='syllables')fitSyllableBoard();if(route==='session')fitSessionText();});
 
 if(patientMode)document.body.classList.add('patient-mode');
+window.__WZ_BOOT_PHASE='ui-render';
 updateHeader();render();syncNavigationButtons();
+window.__WZ_BOOT_PHASE='ready';
 if(stateStorageMode==='local'&&stateStorageWarning){setTimeout(()=>toast('WortZeit läuft im sicheren Ersatzspeicher dieses Browsers. Bitte später ein Datenpaket sichern.'),500);}
 })().catch(err=>{
   console.error('WortZeit boot failed',err);
+  const phase=String(window.__WZ_BOOT_PHASE||'unbekannt');
   const view=document.getElementById('view');
-  if(view)view.innerHTML=`<section class="page"><div class="card" style="max-width:760px;margin:40px auto"><div class="eyebrow">WortZeit</div><h1>WortZeit konnte nicht vollständig starten</h1><p class="help-text">Deine Daten wurden nicht gelöscht. Bitte lade die Seite einmal neu. Wenn das wieder passiert, öffne WortZeit in einem normalen Browserfenster und nicht im Privatmodus.</p><div class="form-row"><button class="primary-btn" onclick="location.reload()">Neu laden</button><a class="soft-btn" href="./behandler.html">Zur Anmeldung</a></div></div></section>`;
+  if(view)view.innerHTML=`<section class="page"><div class="card" style="max-width:760px;margin:40px auto"><div class="eyebrow">WortZeit</div><h1>WortZeit konnte nicht vollständig starten</h1><p class="help-text">Deine Daten wurden nicht gelöscht. Bitte lade die Seite einmal neu. Wenn das wieder passiert, notiere den Startcode unten.</p><p class="muted"><strong>Startcode:</strong> ${phase}</p><div class="form-row"><button class="primary-btn" onclick="location.reload()">Neu laden</button><a class="soft-btn" href="./behandler.html">Zur Anmeldung</a></div></div></section>`;
 });
