@@ -1,9 +1,14 @@
-(() => {
+(async () => {
 'use strict';
 
 const DATA = window.BUNDLED_DATA || {legacyLists:[],lexicon:[],sortingPuzzles:[],imageStories:[],defaultSyllables:[]};
 const STORAGE_KEY = 'wortzeit_therapy_state_v1';
 const AUDIO_DB = 'wortzeit_audio_v1';
+const STATE_DB = 'wortzeit_state_v1';
+const STATE_STORE = 'app';
+const STATE_KEY = 'state';
+const OFFLINE_CACHE = 'wortzeit-v0.8.0';
+const OFFLINE_SHELL = ['./','./index.html','./app.html','./behandler.html','./patient.html','./styles.css?v=0.8.0','./data.js?v=0.8.0','./app.js?v=0.8.0','./manifest-patient.webmanifest','./manifest-therapist.webmanifest'];
 const $ = (sel, root=document) => root.querySelector(sel);
 const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 const esc = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
@@ -30,16 +35,18 @@ const defaultList = {
 };
 
 const DEFAULT_STATE = {
-  version:2,
+  version:3,
   currentListId:null,
   userLists:[], patients:[], plans:[], storyTitleOverrides:{}, activeListIds:[], recentListIds:[],
   importReviewBatches:[], lastImportBatchId:null, listFolderOpen:{}, reviewMigrationVersion:0,
-  settings:{lang:'de',theme:'calm',brightness:55,itemsPerScreen:1,order:'random',unique:true,endless:false,interval:3,bpm:60,beats:4,instantAudio:false,reducedMotion:false,onboardingSeen:false},
+  settings:{lang:'de',theme:'calm',brightness:55,sessionFontScale:50,itemsPerScreen:1,order:'random',unique:true,endless:false,interval:3,bpm:60,beats:4,instantAudio:false,reducedMotion:false,onboardingSeen:false},
   stats:{sortScore:0,storyScore:0,letterScore:0}
 };
 
-let state = loadState();
-if(migrateImportReviewState(state)) saveState();
+let state = await loadState();
+normalizeAllUserLists(state);
+migrateImportReviewState(state);
+saveState();
 let route = 'home';
 let session = null;
 let game = {};
@@ -50,29 +57,76 @@ let toastTimer = null;
 let navDepth = 0;
 let navMaxDepth = 0;
 
-function loadState(){
-  try{
-    const raw=localStorage.getItem(STORAGE_KEY);
-    if(!raw) return cloneData(DEFAULT_STATE);
-    const parsed=JSON.parse(raw);
-    return {
-      ...cloneData(DEFAULT_STATE), ...parsed,
-      settings:{...DEFAULT_STATE.settings,...(parsed.settings||{})},
-      stats:{...DEFAULT_STATE.stats,...(parsed.stats||{})},
-      userLists:Array.isArray(parsed.userLists)?parsed.userLists:[],
-      patients:Array.isArray(parsed.patients)?parsed.patients:[],
-      plans:Array.isArray(parsed.plans)?parsed.plans:[],
-      storyTitleOverrides:parsed.storyTitleOverrides && typeof parsed.storyTitleOverrides==='object'?parsed.storyTitleOverrides:{},
-      activeListIds:Array.isArray(parsed.activeListIds)&&parsed.activeListIds.length?parsed.activeListIds:[parsed.currentListId||defaultList.id],
-      recentListIds:Array.isArray(parsed.recentListIds)?parsed.recentListIds:[],
-      importReviewBatches:Array.isArray(parsed.importReviewBatches)?parsed.importReviewBatches:[],
-      lastImportBatchId:parsed.lastImportBatchId||null,
-      listFolderOpen:parsed.listFolderOpen&&typeof parsed.listFolderOpen==='object'?parsed.listFolderOpen:{},
-      reviewMigrationVersion:Number(parsed.reviewMigrationVersion)||0
-    };
-  }catch(e){ console.warn(e); return cloneData(DEFAULT_STATE); }
+function stateDb(){
+  return new Promise((resolve,reject)=>{const req=indexedDB.open(STATE_DB,1);req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains(STATE_STORE))req.result.createObjectStore(STATE_STORE);};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});
 }
-function saveState(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+async function idbStateGet(){const db=await stateDb();return await new Promise((res,rej)=>{const tx=db.transaction(STATE_STORE,'readonly'),r=tx.objectStore(STATE_STORE).get(STATE_KEY);r.onsuccess=()=>res(r.result||null);r.onerror=()=>rej(r.error);});}
+async function idbStateSet(value){const db=await stateDb();return await new Promise((res,rej)=>{const tx=db.transaction(STATE_STORE,'readwrite');tx.objectStore(STATE_STORE).put(value,STATE_KEY);tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);});}
+async function idbStateClear(){try{const db=await stateDb();await new Promise((res,rej)=>{const tx=db.transaction(STATE_STORE,'readwrite');tx.objectStore(STATE_STORE).clear();tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);});}catch{}}
+function normalizeLoadedState(parsed){
+  parsed=parsed&&typeof parsed==='object'?parsed:{};
+  return {
+    ...cloneData(DEFAULT_STATE), ...parsed,
+    settings:{...DEFAULT_STATE.settings,...(parsed.settings||{})},
+    stats:{...DEFAULT_STATE.stats,...(parsed.stats||{})},
+    userLists:Array.isArray(parsed.userLists)?parsed.userLists:[],
+    patients:Array.isArray(parsed.patients)?parsed.patients:[],
+    plans:Array.isArray(parsed.plans)?parsed.plans:[],
+    storyTitleOverrides:parsed.storyTitleOverrides && typeof parsed.storyTitleOverrides==='object'?parsed.storyTitleOverrides:{},
+    activeListIds:Array.isArray(parsed.activeListIds)&&parsed.activeListIds.length?parsed.activeListIds:[parsed.currentListId||defaultList.id],
+    recentListIds:Array.isArray(parsed.recentListIds)?parsed.recentListIds:[],
+    importReviewBatches:Array.isArray(parsed.importReviewBatches)?parsed.importReviewBatches:[],
+    lastImportBatchId:parsed.lastImportBatchId||null,
+    listFolderOpen:parsed.listFolderOpen&&typeof parsed.listFolderOpen==='object'?parsed.listFolderOpen:{},
+    reviewMigrationVersion:Number(parsed.reviewMigrationVersion)||0
+  };
+}
+async function loadState(){
+  let parsed=null;
+  if(typeof indexedDB!=='undefined'){
+    try{parsed=await idbStateGet();}catch(e){console.warn('IndexedDB state load failed',e);}
+  }
+  if(!parsed){
+    try{const raw=localStorage.getItem(STORAGE_KEY);if(raw)parsed=JSON.parse(raw);}catch(e){console.warn('Legacy state load failed',e);}
+    if(parsed&&typeof indexedDB!=='undefined'){try{await idbStateSet(parsed);}catch(e){console.warn('State migration to IndexedDB failed',e);}}
+  }
+  return normalizeLoadedState(parsed);
+}
+let stateSaveTimer=null,stateSaveChain=Promise.resolve(),pendingStateSnapshot=null;
+function writeLegacyFallback(snapshot){
+  try{localStorage.setItem(STORAGE_KEY,JSON.stringify(snapshot));return true;}catch(e){console.warn('localStorage fallback failed',e);return false;}
+}
+function persistStateSnapshot(snapshot){
+  if(typeof indexedDB==='undefined'){writeLegacyFallback(snapshot);return Promise.resolve();}
+  return idbStateSet(snapshot).then(()=>{
+    try{localStorage.setItem(STORAGE_KEY,JSON.stringify({version:snapshot.version,settings:snapshot.settings,currentListId:snapshot.currentListId,activeListIds:snapshot.activeListIds,recentListIds:snapshot.recentListIds}));}catch{}
+  }).catch(e=>{console.warn('IndexedDB state save failed',e);writeLegacyFallback(snapshot);});
+}
+function saveState(){
+  pendingStateSnapshot=cloneData(state);
+  clearTimeout(stateSaveTimer);
+  stateSaveTimer=setTimeout(()=>{const snap=pendingStateSnapshot;pendingStateSnapshot=null;stateSaveChain=stateSaveChain.then(()=>persistStateSnapshot(snap));},40);
+}
+async function flushStateSave(){
+  clearTimeout(stateSaveTimer);
+  if(pendingStateSnapshot){const snap=pendingStateSnapshot;pendingStateSnapshot=null;stateSaveChain=stateSaveChain.then(()=>persistStateSnapshot(snap));}
+  await stateSaveChain;
+}
+function listFolders(L){
+  const raw=Array.isArray(L?.folders)?L.folders:[L?.category];
+  const out=[...new Set(raw.map(x=>String(x||'').trim()).filter(Boolean))];
+  return out.length?out:['Eigene Listen'];
+}
+function normalizeListStorage(L){
+  if(!L||typeof L!=='object')return L;
+  L.folders=listFolders(L);L.category=L.folders[0];
+  if(typeof L.entrySeparator!=='string')L.entrySeparator='';
+  return L;
+}
+function normalizeAllUserLists(s){(s.userLists||[]).forEach(normalizeListStorage);}
+function setListFolders(L,folders){L.folders=[...new Set((folders||[]).map(x=>String(x||'').trim()).filter(Boolean))];if(!L.folders.length)L.folders=['Eigene Listen'];L.category=L.folders[0];}
+function knownFolders(){return [...new Set(selectableLists().flatMap(listFolders))].sort((a,b)=>a.localeCompare(b,'de',{sensitivity:'base',numeric:true}));}
+function addListToFolder(L,folder){folder=String(folder||'').trim();if(!L||!folder)return false;setListFolders(L,[...listFolders(L),folder]);return true;}
 function migrateImportReviewState(s){
   let changed=false;
   if(!Array.isArray(s.importReviewBatches)){s.importReviewBatches=[];changed=true;}
@@ -200,7 +254,7 @@ function openGameMaterialPicker(gameRoute){
   const lists=compatibleLists(gameRoute),selected=new Set(explicitListIds().filter(id=>lists.some(L=>L.id===id)));
   const tag=LIST_GAME_LABELS[gameRoute]||'Übung';
   openModal(`<div class="modal-head"><div><div class="eyebrow">Material</div><h2>Liste für ${esc(tag)} wählen</h2></div><button class="icon-btn" data-close-modal>×</button></div><div class="field"><label>Liste suchen</label><input id="gameListSearch" type="search" placeholder="Name der Liste"></div><div id="gameListChoices" class="game-list-choices section"></div><div class="modal-foot"><button class="soft-btn" id="gameUseDefault">Ohne eigene Liste · Standardwörter</button><button class="primary-btn" id="gameUseLists" ${selected.size?'':'disabled'}>Mit Auswahl starten</button></div>`);
-  const draw=(q='')=>{const n=q.trim().toLocaleLowerCase('de'),shown=lists.filter(L=>!n||`${L.title} ${L.category}`.toLocaleLowerCase('de').includes(n));$('#gameListChoices').innerHTML=shown.length?shown.map(L=>`<button class="game-list-choice ${selected.has(L.id)?'selected':''}" data-game-list-choice="${esc(L.id)}"><span><strong>${esc(L.title)}</strong><small>${esc(L.category||'Liste')} · ${L.items?.length||0} Einträge</small></span><span class="game-list-check">${selected.has(L.id)?'✓':''}</span></button>`).join(''):'<div class="muted">Keine passende Liste gefunden.</div>';$$('[data-game-list-choice]').forEach(b=>b.onclick=()=>{const id=b.dataset.gameListChoice;if(selected.has(id))selected.delete(id);else selected.add(id);draw($('#gameListSearch').value);$('#gameUseLists').disabled=!selected.size;});};
+  const draw=(q='')=>{const n=q.trim().toLocaleLowerCase('de'),shown=lists.filter(L=>!n||`${L.title} ${listFolders(L).join(' ')}`.toLocaleLowerCase('de').includes(n));$('#gameListChoices').innerHTML=shown.length?shown.map(L=>`<button class="game-list-choice ${selected.has(L.id)?'selected':''}" data-game-list-choice="${esc(L.id)}"><span><strong>${esc(L.title)}</strong><small>${esc(listFolders(L).join(' · '))} · ${L.items?.length||0} Einträge</small></span><span class="game-list-check">${selected.has(L.id)?'✓':''}</span></button>`).join(''):'<div class="muted">Keine passende Liste gefunden.</div>';$$('[data-game-list-choice]').forEach(b=>b.onclick=()=>{const id=b.dataset.gameListChoice;if(selected.has(id))selected.delete(id);else selected.add(id);draw($('#gameListSearch').value);$('#gameUseLists').disabled=!selected.size;});};
   draw();$('#gameListSearch').oninput=e=>draw(e.target.value);$('#gameUseLists').onclick=()=>applyGameMaterialSelection([...selected],gameRoute);$('#gameUseDefault').onclick=()=>{state.activeListIds=[];state.currentListId=null;saveState();session=null;game={allowDefaultForRoute:gameRoute};closeModal();render();toast('Standardwörter werden nur als Fallback verwendet.');};
 }
 function renderGameMaterialGate(gameRoute){
@@ -346,15 +400,15 @@ function renderSession(){
   const ids=sessionCurrentIndices();
   const texts=ids.map(i=>session.items[i]?.text).filter(Boolean);
   const done=!texts.length;
-  const brightness=clamp(+state.settings.brightness||55,0,100),pal=sessionPalette(brightness);
+  const brightness=clamp(+state.settings.brightness||55,0,100),fontScale=clamp(+state.settings.sessionFontScale||50,25,100),pal=sessionPalette(brightness);
   $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="session-stage" style="--session-bg:${pal.bg};--session-ink:${pal.ink}">
-    <div class="session-top"><button class="soft-btn" id="sessionOptions">☰ Optionen</button><label class="session-brightness" title="Hintergrundhelligkeit"><span aria-hidden="true">☀</span><input id="quickBrightness" type="range" min="0" max="100" value="${brightness}" aria-label="Hintergrundhelligkeit"></label><div class="toolbar"><button class="soft-btn" id="sessionStart" title="Zum Anfang der aktuellen Reihenfolge">↺ Anfang</button><button class="icon-btn" id="undoBtn" title="Zurück" ${!session.history.length?'disabled':''}>←</button><button class="icon-btn" id="redoBtn" title="Vor" ${!session.future.length?'disabled':''}>→</button></div></div>
+    <div class="session-top"><button class="soft-btn" id="sessionOptions">☰ Optionen</button><div class="session-quick-sliders"><label class="session-brightness" title="Hintergrundhelligkeit"><span aria-hidden="true">☀</span><input id="quickBrightness" type="range" min="0" max="100" value="${brightness}" aria-label="Hintergrundhelligkeit"></label><label class="session-font-scale" title="Schriftgröße"><span aria-hidden="true">Aa</span><input id="quickSessionFont" type="range" min="25" max="100" step="5" value="${fontScale}" aria-label="Schriftgröße"></label></div><div class="toolbar"><button class="soft-btn" id="sessionStart" title="Zum Anfang der aktuellen Reihenfolge">↺ Anfang</button><button class="icon-btn" id="undoBtn" title="Zurück" ${!session.history.length?'disabled':''}>←</button><button class="icon-btn" id="redoBtn" title="Vor" ${!session.future.length?'disabled':''}>→</button></div></div>
     <div class="session-word-wrap" id="wordTap" role="button" tabindex="0" aria-label="Nächstes Wort"><div class="session-word ${texts.length>1?'multi':''}">${done?'Fertig':texts.map(esc).join('<br>')}</div></div>
     <div class="session-bottom"><div class="toolbar"><span class="session-counter">${Math.min(session.pos+1,session.order.length)} / ${session.order.length}</span><button class="soft-btn" id="audioBtn">● Audio</button></div><button class="round-play" id="playBtn" title="Automatisch abspielen">${session.timer?'Ⅱ':'▶'}</button></div>
   </div>`;
   $('#wordTap').onclick=sessionNext; $('#wordTap').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();sessionNext();}};
   $('#undoBtn').onclick=sessionPrev; $('#redoBtn').onclick=sessionRedo; $('#playBtn').onclick=toggleAutoplay;$('#sessionStart').onclick=sessionToStart;
-  $('#quickBrightness').oninput=e=>applySessionBrightness(e.target.value,true);
+  $('#quickBrightness').oninput=e=>applySessionBrightness(e.target.value,true);$('#quickSessionFont').oninput=e=>{state.settings.sessionFontScale=+e.target.value;saveState();fitSessionText();};
   $('#sessionOptions').onclick=openSessionOptions; $('#audioBtn').onclick=openAudioDialog;
   bindPlanBar(); requestAnimationFrame(fitSessionText); maybeAutoplayRecording();
 }
@@ -367,15 +421,15 @@ function openSessionOptions(){
       <label class="toggle"><input id="optEndless" type="checkbox"> Endlos</label>
       <label class="toggle"><input id="optAudio" type="checkbox"> Aufnahme automatisch</label>
     </div>
-    <div class="form-row"><div class="field grow"><label>Intervall in Sekunden</label><input id="optInterval" type="range" min="0.5" max="15" step="0.5"><div class="small muted"><span id="intervalValue"></span> s</div></div><div class="field grow"><label>Hintergrundhelligkeit</label><input id="optBright" type="range" min="0" max="100"><div class="small muted"><span id="brightValue"></span>%</div></div></div>
+    <div class="form-row"><div class="field grow"><label>Intervall in Sekunden</label><input id="optInterval" type="range" min="0.5" max="15" step="0.5"><div class="small muted"><span id="intervalValue"></span> s</div></div><div class="field grow"><label>Hintergrundhelligkeit</label><input id="optBright" type="range" min="0" max="100"><div class="small muted"><span id="brightValue"></span>%</div></div><div class="field grow"><label>Schriftgröße</label><input id="optSessionFont" type="range" min="25" max="100" step="5"><div class="small muted"><span id="sessionFontValue"></span>% · 50% = bisherige Größe</div></div></div>
     <div class="card"><div class="section-title"><h3>Rhythmus-Hilfe</h3><span class="muted small">setzt das Intervall</span></div><div class="form-row"><div class="field"><label>BPM</label><input id="optBpm" type="number" min="20" max="300"></div><div class="field"><label>Beats pro Wort</label><input id="optBeats" type="number" min="1" max="16"></div><button class="soft-btn" id="applyBeat">Aus BPM übernehmen</button><button class="soft-btn" id="tapTempo">Tap BPM</button></div></div>
   </div><div class="modal-foot"><button class="primary-btn" id="saveSessionOpts">Übernehmen</button></div>`);
-  $('#optOrder').value=state.settings.order; $('#optAmount').value=state.settings.itemsPerScreen; $('#optEndless').checked=state.settings.endless; $('#optAudio').checked=state.settings.instantAudio; $('#optInterval').value=state.settings.interval; $('#optBright').value=state.settings.brightness; $('#optBpm').value=state.settings.bpm; $('#optBeats').value=state.settings.beats;
-  $('#intervalValue').textContent=state.settings.interval; $('#brightValue').textContent=state.settings.brightness;
-  $('#optInterval').oninput=e=>$('#intervalValue').textContent=e.target.value; $('#optBright').oninput=e=>{$('#brightValue').textContent=e.target.value;applySessionBrightness(e.target.value,false);};
+  $('#optOrder').value=state.settings.order; $('#optAmount').value=state.settings.itemsPerScreen; $('#optEndless').checked=state.settings.endless; $('#optAudio').checked=state.settings.instantAudio; $('#optInterval').value=state.settings.interval; $('#optBright').value=state.settings.brightness; $('#optSessionFont').value=state.settings.sessionFontScale||50; $('#optBpm').value=state.settings.bpm; $('#optBeats').value=state.settings.beats;
+  $('#intervalValue').textContent=state.settings.interval; $('#brightValue').textContent=state.settings.brightness;$('#sessionFontValue').textContent=state.settings.sessionFontScale||50;
+  $('#optInterval').oninput=e=>$('#intervalValue').textContent=e.target.value; $('#optBright').oninput=e=>{$('#brightValue').textContent=e.target.value;applySessionBrightness(e.target.value,false);};$('#optSessionFont').oninput=e=>{$('#sessionFontValue').textContent=e.target.value;state.settings.sessionFontScale=+e.target.value;fitSessionText();};
   $('#applyBeat').onclick=()=>{const bpm=Math.max(20,+$('#optBpm').value||60),beats=Math.max(1,+$('#optBeats').value||1);const seconds=60/bpm*beats;$('#optInterval').value=clamp(seconds,.5,15);$('#intervalValue').textContent=(Math.round(seconds*100)/100);};
   let taps=[]; $('#tapTempo').onclick=()=>{const now=performance.now();taps.push(now);taps=taps.filter(x=>now-x<5000).slice(-8);if(taps.length>1){const diffs=taps.slice(1).map((x,i)=>x-taps[i]);const avg=diffs.reduce((a,b)=>a+b,0)/diffs.length;$('#optBpm').value=Math.round(60000/avg);}};
-  $('#saveSessionOpts').onclick=()=>{state.settings.order=$('#optOrder').value;state.settings.itemsPerScreen=+$('#optAmount').value;state.settings.endless=$('#optEndless').checked;state.settings.instantAudio=$('#optAudio').checked;state.settings.interval=+$('#optInterval').value;state.settings.brightness=+$('#optBright').value;state.settings.bpm=+$('#optBpm').value;state.settings.beats=+$('#optBeats').value;saveState();stopAutoplay();buildSession();closeModal();renderSession();};
+  $('#saveSessionOpts').onclick=()=>{state.settings.order=$('#optOrder').value;state.settings.itemsPerScreen=+$('#optAmount').value;state.settings.endless=$('#optEndless').checked;state.settings.instantAudio=$('#optAudio').checked;state.settings.interval=+$('#optInterval').value;state.settings.brightness=+$('#optBright').value;state.settings.sessionFontScale=+$('#optSessionFont').value;state.settings.bpm=+$('#optBpm').value;state.settings.beats=+$('#optBeats').value;saveState();stopAutoplay();buildSession();closeModal();renderSession();};
 }
 
 // ---------- Audio DB / dialog ----------
@@ -427,22 +481,24 @@ function renderLists(){
   <input id="folderPicker" type="file" webkitdirectory directory multiple hidden>`;
   const renderTree=(q='')=>{
     const norm=q.trim().toLocaleLowerCase('de');
-    const filtered=lists.filter(x=>!norm || `${x.title} ${x.category} ${listGameTags(x).map(t=>LIST_GAME_LABELS[t]).join(' ')}`.toLocaleLowerCase('de').includes(norm));
-    const groups=new Map();filtered.forEach(L=>{const cat=L.category||'Eigene Listen';if(!groups.has(cat))groups.set(cat,[]);groups.get(cat).push(L);});groups.forEach(arr=>arr.sort((a,b)=>a.title.localeCompare(b.title,'de',{sensitivity:'base',numeric:true})));
+    const filtered=lists.filter(x=>!norm || `${x.title} ${listFolders(x).join(' ')} ${listGameTags(x).map(t=>LIST_GAME_LABELS[t]).join(' ')}`.toLocaleLowerCase('de').includes(norm));
+    const groups=new Map();filtered.forEach(L=>{for(const cat of listFolders(L)){if(!groups.has(cat))groups.set(cat,[]);groups.get(cat).push(L);}});groups.forEach(arr=>arr.sort((a,b)=>a.title.localeCompare(b.title,'de',{sensitivity:'base',numeric:true})));
     const entries=[...groups.entries()].sort((a,b)=>a[0].localeCompare(b[0],'de',{sensitivity:'base',numeric:true}));
     $('#listTree').innerHTML=entries.map(([cat,arr])=>{
       const open=!!norm||!!state.listFolderOpen?.[cat],unreviewed=arr.filter(listNeedsReview).length;
-      return `<div class="list-folder-group"><button class="list-folder-toggle ${open?'open':''}" data-folder-toggle="${esc(cat)}" aria-expanded="${open?'true':'false'}"><span class="folder-arrow">${open?'▾':'▸'}</span><span class="folder-name">${esc(cat)}</span><span class="folder-count">${arr.length}</span>${unreviewed?`<span class="folder-review-count">${unreviewed} neu</span>`:''}</button>${open?`<div class="list-folder-content">${arr.map(L=>{const status=listReviewStatusLabel(L);return `<div class="list-item-row"><button class="list-item ${L.id===state.currentListId?'active':''}" data-list-id="${esc(L.id)}"><div class="list-item-title-line"><strong>${esc(L.title)}</strong>${status&&L.review?.status!=='checked'?`<span class="list-review-pill ${L.review.status}">${status}</span>`:''}</div><small>${L.items?.length||0} Einträge${L.kind==='pair'?' · A/B':''}</small><span class="list-game-mini">${listGameTags(L).filter(x=>x!=='session').slice(0,4).map(x=>esc(LIST_GAME_LABELS[x])).join(' · ')}</span></button><button class="mix-check ${activeIds.has(L.id)?'checked':''}" data-mix-list="${esc(L.id)}" aria-label="${activeIds.has(L.id)?'Aus Mischung entfernen':'Zur Mischung hinzufügen'}" title="${activeIds.has(L.id)?'In Mischübung aktiv':'Zur Mischübung hinzufügen'}">${activeIds.has(L.id)?'✓':'+'}</button></div>`}).join('')}</div>`:''}</div>`;
+      return `<div class="list-folder-group"><button class="list-folder-toggle ${open?'open':''}" data-folder-toggle="${esc(cat)}" data-folder-drop="${esc(cat)}" aria-expanded="${open?'true':'false'}"><span class="folder-arrow">${open?'▾':'▸'}</span><span class="folder-name">${esc(cat)}</span><span class="folder-count">${arr.length}</span>${unreviewed?`<span class="folder-review-count">${unreviewed} neu</span>`:''}</button>${open?`<div class="list-folder-content">${arr.map(L=>{const status=listReviewStatusLabel(L);return `<div class="list-item-row" draggable="${L.bundled?'false':'true'}" data-list-drag="${esc(L.id)}"><button class="list-item ${L.id===state.currentListId?'active':''}" data-list-id="${esc(L.id)}"><div class="list-item-title-line"><strong>${esc(L.title)}</strong>${status&&L.review?.status!=='checked'?`<span class="list-review-pill ${L.review.status}">${status}</span>`:''}</div><small>${L.items?.length||0} Einträge${L.kind==='pair'?' · A/B':''}</small><span class="list-game-mini">${listGameTags(L).filter(x=>x!=='session').slice(0,4).map(x=>esc(LIST_GAME_LABELS[x])).join(' · ')}</span></button><button class="mix-check ${activeIds.has(L.id)?'checked':''}" data-mix-list="${esc(L.id)}" aria-label="${activeIds.has(L.id)?'Aus Mischung entfernen':'Zur Mischung hinzufügen'}" title="${activeIds.has(L.id)?'In Mischübung aktiv':'Zur Mischübung hinzufügen'}">${activeIds.has(L.id)?'✓':'+'}</button></div>`}).join('')}</div>`:''}</div>`;
     }).join('')||'<p class="muted">Keine Treffer.</p>';
     $$('[data-folder-toggle]').forEach(b=>b.onclick=()=>{const cat=b.dataset.folderToggle;state.listFolderOpen=state.listFolderOpen||{};state.listFolderOpen[cat]=!state.listFolderOpen[cat];saveState();renderTree($('#listSearch').value);});
     $$('[data-list-id]').forEach(b=>b.onclick=()=>{setCurrentList(b.dataset.listId);renderLists();});
     $$('[data-mix-list]').forEach(b=>b.onclick=()=>{toggleActiveList(b.dataset.mixList);renderLists();});
+    $$('[data-list-drag]').forEach(row=>{if(row.getAttribute('draggable')!=='true')return;row.ondragstart=e=>{e.dataTransfer.effectAllowed='copy';e.dataTransfer.setData('text/wortzeit-list-id',row.dataset.listDrag);};});
+    $$('[data-folder-drop]').forEach(folder=>{folder.ondragover=e=>{if(e.dataTransfer.types.includes('text/wortzeit-list-id')){e.preventDefault();folder.classList.add('drag-over');}};folder.ondragleave=()=>folder.classList.remove('drag-over');folder.ondrop=e=>{e.preventDefault();folder.classList.remove('drag-over');const id=e.dataTransfer.getData('text/wortzeit-list-id'),L=state.userLists.find(x=>x.id===id);if(!L)return toast('Integrierte Listen zuerst als Kopie bearbeiten.');if(addListToFolder(L,folder.dataset.folderDrop)){saveState();renderLists();toast(`„${L.title}“ zusätzlich „${folder.dataset.folderDrop}“ zugeordnet`);}};});
   };
   const renderDetail=()=>{
     const L=lists.find(x=>x.id===state.currentListId)||activeExplicit[0]||null;
     if(!L){$('#listDetail').innerHTML=`<div class="empty-list-detail"><div class="material-gate-icon">≡</div><h2>Liste auswählen</h2><p class="muted">Wähle links eine vorhandene Liste oder importiere einen Ordner. Die integrierten Standardwörter werden hier absichtlich nicht als normale Liste angezeigt.</p></div>`;return;}
     const preview=(L.items||[]).slice(0,160),tags=listGameTags(L),review=L.review;
-    $('#listDetail').innerHTML=`<div class="section-title"><div><div class="eyebrow">${esc(L.category||'Liste')}</div><h2>${esc(L.title)}</h2></div><div class="toolbar"><button class="primary-btn" data-route="session">Verwenden</button><button class="soft-btn" id="mixThis">${activeIds.has(L.id)?'✓ In Mischung':'＋ Zur Mischung'}</button><button class="soft-btn" id="recordBank">Aufnahmebank</button><button class="soft-btn" id="editList">${L.bundled?'Kopie bearbeiten':'Liste bearbeiten'}</button><button class="soft-btn" id="exportList">Export</button>${review&&listNeedsReview(L)?`<button class="review-done-btn" id="markReviewed">✓ Geprüft</button>`:''}${L.bundled?'':`<button class="danger-btn" id="deleteList">Löschen</button>`}</div></div>
+    $('#listDetail').innerHTML=`<div class="section-title"><div><div class="eyebrow">${esc(listFolders(L).join(' · '))}</div><h2>${esc(L.title)}</h2></div><div class="toolbar"><button class="primary-btn" data-route="session">Verwenden</button><button class="soft-btn" id="mixThis">${activeIds.has(L.id)?'✓ In Mischung':'＋ Zur Mischung'}</button><button class="soft-btn" id="recordBank">Aufnahmebank</button><button class="soft-btn" id="editList">${L.bundled?'Kopie bearbeiten':'Liste bearbeiten'}</button><button class="soft-btn" id="exportList">Export</button>${review&&listNeedsReview(L)?`<button class="review-done-btn" id="markReviewed">✓ Geprüft</button>`:''}${L.bundled?'':`<button class="danger-btn" id="deleteList">Löschen</button>`}</div></div>
       <p class="muted">${L.items?.length||0} Einträge · ${L.kind==='pair'?'A/B-Paare':L.kind==='choiceStory'?'Auswahlgeschichte':'Wort-/Textliste'}</p>
       ${review?`<div class="list-review-detail ${esc(review.status)}"><strong>${esc(listReviewStatusLabel(L)||'Import')}</strong><span>Erkennung: ${esc(confidenceLabel(review.confidence))}${review.separator?` · Trennung: ${esc(review.separator)}`:''}</span>${review.warnings?.length?`<span>${review.warnings.map(esc).join(' · ')}</span>`:''}</div>`:''}
       <div class="list-game-tags"><span class="muted small">Geeignet für:</span>${tags.map(t=>`<span class="list-game-tag">${esc(LIST_GAME_LABELS[t]||t)}</span>`).join('')}</div>
@@ -459,7 +515,7 @@ function renderLists(){
   renderTree();renderDetail();
   $('#listSearch').oninput=e=>renderTree(e.target.value);
   $('#collapseAllFolders').onclick=()=>{state.listFolderOpen={};saveState();renderTree($('#listSearch').value);};
-  $('#openPendingFolders')?.addEventListener('click',()=>{const next={};lists.filter(listNeedsReview).forEach(L=>next[L.category||'Eigene Listen']=true);state.listFolderOpen=next;saveState();renderTree($('#listSearch').value);});
+  $('#openPendingFolders')?.addEventListener('click',()=>{const next={};lists.filter(listNeedsReview).forEach(L=>listFolders(L).forEach(f=>next[f]=true));state.listFolderOpen=next;saveState();renderTree($('#listSearch').value);});
   $('#openPendingReview')?.addEventListener('click',()=>openImportReview('pending'));
   $('#openLastImport')?.addEventListener('click',()=>openImportReview(state.lastImportBatchId));
   $('#newList').onclick=openNewListModal;
@@ -472,11 +528,11 @@ function renderLists(){
 function safeFilename(s){return String(s).replace(/[\\/:*?"<>|]+/g,'_').trim()||'Datei';}
 function openNewListModal(){
   openModal(`<div class="modal-head"><div><div class="eyebrow">Neue Liste</div><h2>Wörter einfügen</h2></div><button class="icon-btn" data-close-modal>×</button></div><div class="grid"><div class="form-row"><div class="field grow"><label>Listenname</label><input id="nlName" placeholder="z. B. Tiere"></div><div class="field"><label>Trennzeichen zwischen Einträgen</label><input id="nlSep" value="-" maxlength="5"></div><div class="field"><label>Silbentrenner <span class="muted">(optional)</span></label><input id="nlSyllSep" value="·" maxlength="3" placeholder="z. B. ·"></div><label class="toggle"><input id="nlPair" type="checkbox"> A/B-Paare</label><label class="toggle"><input id="nlChoiceStory" type="checkbox"> Auswahlgeschichte</label></div><div class="field"><label>Inhalt</label><textarea id="nlText" placeholder="Hund-Katze-Maus-…"></textarea></div><div class="small muted">Für eigene Silben kannst du z. B. als Eintrags-Trennzeichen <strong>;</strong> und als Silbentrenner <strong>-</strong> verwenden: <strong>Ba-na-ne;To-ma-te;Ka-me-ra</strong>.<br>Für eine <strong>Auswahlgeschichte</strong> werden immer 5 Einträge als Gruppe gelesen: 1 Satzanfang + 4 Möglichkeiten.</div></div><div class="modal-foot"><button class="primary-btn" id="nlSave">Liste speichern</button></div>`);
-  $('#nlSave').onclick=()=>{const name=$('#nlName').value.trim()||'Neue Liste';const text=$('#nlText').value;const sep=$('#nlSep').value;const syllSep=$('#nlSyllSep').value;if(sep&&syllSep&&sep===syllSep)return toast('Eintrags-Trennzeichen und Silbentrenner müssen verschieden sein');const pieces=parsePlainList(text,sep);if(!pieces.length)return toast('Keine Einträge gefunden');if($('#nlChoiceStory').checked&&pieces.length%5!==0)return toast('Auswahlgeschichten brauchen immer Gruppen aus 5 Einträgen.');const L=makeUserList(name,pieces,'Eigene Listen','',syllSep);if($('#nlPair').checked){L.kind='pair';L.pairs=[];for(let i=0;i<L.items.length-1;i+=2)L.pairs.push({id:uid('pair'),a:L.items[i].text,b:L.items[i+1].text});}if($('#nlChoiceStory').checked)L.kind='choiceStory';L.gameTags=inferListGameTags(L);state.userLists.push(L);state.currentListId=L.id;state.activeListIds=[L.id];rememberList(L.id);saveState();session=null;game={};closeModal();renderLists();toast('Liste gespeichert');};
+  $('#nlSave').onclick=()=>{const name=$('#nlName').value.trim()||'Neue Liste';const text=$('#nlText').value;const sep=$('#nlSep').value;const syllSep=$('#nlSyllSep').value;if(sep&&syllSep&&sep===syllSep)return toast('Eintrags-Trennzeichen und Silbentrenner müssen verschieden sein');const pieces=parsePlainList(text,sep);if(!pieces.length)return toast('Keine Einträge gefunden');if($('#nlChoiceStory').checked&&pieces.length%5!==0)return toast('Auswahlgeschichten brauchen immer Gruppen aus 5 Einträgen.');const L=makeUserList(name,pieces,'Eigene Listen','',syllSep,sep);if($('#nlPair').checked){L.kind='pair';L.pairs=[];for(let i=0;i<L.items.length-1;i+=2)L.pairs.push({id:uid('pair'),a:L.items[i].text,b:L.items[i+1].text});}if($('#nlChoiceStory').checked)L.kind='choiceStory';L.gameTags=inferListGameTags(L);state.userLists.push(L);state.currentListId=L.id;state.activeListIds=[L.id];rememberList(L.id);saveState();session=null;game={};closeModal();renderLists();toast('Liste gespeichert');};
 }
-function makeUserList(title,pieces,category='Eigene Listen',sourcePath='',syllableSeparator=''){
+function makeUserList(title,pieces,category='Eigene Listen',sourcePath='',syllableSeparator='',entrySeparator=''){
   const items=pieces.map((raw,i)=>{const source=String(raw).trim();if(!source)return null;if(syllableSeparator&&source.includes(syllableSeparator)){const syllables=source.split(syllableSeparator).map(x=>x.trim()).filter(Boolean);return {id:uid(`i${i}`),text:syllables.join(''),syllables,sourceText:source};}return {id:uid(`i${i}`),text:source};}).filter(Boolean);
-  return {id:uid('list'),title,category,kind:'list',sourcePath,bundled:false,syllableSeparator:syllableSeparator||'',items};
+  return {id:uid('list'),title,category,folders:[category||'Eigene Listen'],kind:'list',sourcePath,bundled:false,syllableSeparator:syllableSeparator||'',entrySeparator:entrySeparator||'',items};
 }
 function rebuildListPairs(L){
   if(L.kind!=='pair'){delete L.pairs;return;}
@@ -484,34 +540,49 @@ function rebuildListPairs(L){
 }
 function editListTarget(L){
   if(!L.bundled)return L;
-  const copy={...cloneData(L),id:uid('list'),bundled:false,category:`Eigene Kopie · ${L.category||'Liste'}`,title:`${L.title} · Kopie`,sourcePath:`Kopie von ${L.sourcePath||L.title}`,gameTags:listGameTags(L)};
+  const copy=normalizeListStorage({...cloneData(L),id:uid('list'),bundled:false,category:`Eigene Kopie · ${L.category||'Liste'}`,folders:[`Eigene Kopie · ${L.category||'Liste'}`],title:`${L.title} · Kopie`,sourcePath:`Kopie von ${L.sourcePath||L.title}`,gameTags:listGameTags(L)});
   copy.items=(copy.items||[]).map((it,i)=>({...it,id:uid(`i${i}`)}));rebuildListPairs(copy);state.userLists.push(copy);state.currentListId=copy.id;state.activeListIds=[copy.id];rememberList(copy.id);saveState();return copy;
 }
-function listEditorText(L){
-  if(L.kind==='pair'&&(L.pairs||[]).length)return L.pairs.map(p=>`${p.a} | ${p.b}`).join('\n');
-  return (L.items||[]).map(it=>it.sourceText||it.text||'').join('\n');
-}
-function parseEditorItems(L,text,syllSep){
-  const old=L.items||[];
+function listEditorFormattedText(L,items=L.items||[]){
   if(L.kind==='pair'){
-    const lines=String(text||'').replace(/\r/g,'').split('\n').map(x=>x.trim()).filter(Boolean);const vals=[];
-    for(const line of lines){const parts=line.split('|').map(x=>x.trim()).filter(Boolean);if(parts.length>=2)vals.push(parts[0],parts.slice(1).join(' | '));else vals.push(line);}
-    return vals.map((raw,i)=>{const prev=old[i],source=raw.trim();return {id:prev?.id||uid(`i${i}`),text:source,sourceText:source};});
+    const rows=[];for(let i=0;i<items.length;i+=2)rows.push(`${items[i]?.sourceText||items[i]?.text||''} | ${items[i+1]?.sourceText||items[i+1]?.text||''}`.trim());return rows.join('\n');
   }
-  const lines=String(text||'').replace(/\r/g,'').split('\n').map(x=>x.trim()).filter(Boolean);
-  return lines.map((raw,i)=>{const prev=old[i],source=raw.trim();if(syllSep&&source.includes(syllSep)){const syllables=source.split(syllSep).map(x=>x.trim()).filter(Boolean);return {id:prev?.id||uid(`i${i}`),text:syllables.join(''),syllables,sourceText:source};}return {id:prev?.id||uid(`i${i}`),text:source,sourceText:source};});
+  return items.map(it=>it.sourceText||it.text||'').join('\n');
+}
+function listEditorRawText(L,items=L.items||[],entrySep=L.entrySeparator||''){
+  const sep=entrySep||'\n';return items.map(it=>it.sourceText||it.text||'').join(sep);
+}
+function editorValuesToItems(L,values,syllSep){
+  const old=L.items||[];
+  return values.map((raw,i)=>{const prev=old[i],source=String(raw||'').trim();if(!source)return null;if(syllSep&&source.includes(syllSep)){const syllables=source.split(syllSep).map(x=>x.trim()).filter(Boolean);return {id:prev?.id||uid(`i${i}`),text:syllables.join(''),syllables,sourceText:source};}return {id:prev?.id||uid(`i${i}`),text:source,sourceText:source};}).filter(Boolean);
+}
+function parseEditorItems(L,text,syllSep,mode='formatted',entrySep=''){
+  if(mode==='raw')return editorValuesToItems(L,parsePlainList(text,entrySep),syllSep);
+  if(L.kind==='pair'){
+    const lines=String(text||'').replace(/\r/g,'').split('\n').map(x=>x.trim()).filter(Boolean),vals=[];
+    for(const line of lines){const parts=line.split('|').map(x=>x.trim()).filter(Boolean);if(parts.length>=2)vals.push(parts[0],parts.slice(1).join(' | '));else vals.push(line);}
+    return editorValuesToItems(L,vals,syllSep);
+  }
+  return editorValuesToItems(L,String(text||'').replace(/\r/g,'').split('\n').map(x=>x.trim()).filter(Boolean),syllSep);
 }
 function gameTagCheckboxes(selected){return Object.entries(LIST_GAME_LABELS).map(([id,label])=>`<label class="game-tag-check"><input type="checkbox" value="${id}" ${selected.includes(id)?'checked':''}><span>${esc(label)}</span></label>`).join('');}
 function openListEditor(sourceList,returnReviewScope=null){
-  const L=editListTarget(sourceList),selected=listGameTags(L),kind=L.kind||'list';
+  const L=normalizeListStorage(editListTarget(sourceList)),selected=listGameTags(L),kind=L.kind||'list';
+  let editorMode='formatted',folderSet=new Set(listFolders(L));
+  const folderOptions=knownFolders().map(f=>`<option value="${esc(f)}"></option>`).join('');
   openModal(`<div class="modal-head"><div><div class="eyebrow">Liste bearbeiten</div><h2>${esc(L.title)}</h2></div><button class="icon-btn" data-close-modal>×</button></div>
-    <div class="form-row"><div class="field grow"><label>Listenname</label><input id="leTitle" value="${esc(L.title)}"></div><div class="field"><label>Typ</label><select id="leKind"><option value="list">Normale Liste</option><option value="pair">A/B-Paare</option><option value="choiceStory">Auswahlgeschichte</option></select></div><div class="field"><label>Silbentrenner</label><input id="leSyllSep" value="${esc(L.syllableSeparator||'')}" placeholder="z. B. -" maxlength="3"></div></div>
+    <div class="form-row"><div class="field grow"><label>Listenname</label><input id="leTitle" value="${esc(L.title)}"></div><div class="field"><label>Typ</label><select id="leKind"><option value="list">Normale Liste</option><option value="pair">A/B-Paare</option><option value="choiceStory">Auswahlgeschichte</option></select></div><div class="field"><label>Eintrags-Trennzeichen</label><input id="leEntrySep" value="${esc(L.entrySeparator||'')}" placeholder="leer = Zeilenumbruch" maxlength="5"></div><div class="field"><label>Silbentrenner</label><input id="leSyllSep" value="${esc(L.syllableSeparator||'')}" placeholder="z. B. -" maxlength="3"></div></div>
+    <div class="section"><div class="eyebrow">Ordner · eine Liste darf in mehreren Ordnern erscheinen</div><div id="leFolderChips" class="folder-assignment-chips"></div><div class="form-row folder-assignment-row"><div class="field grow"><label>Weiteren Ordner zuweisen</label><input id="leFolderInput" list="leFolderSuggestions" placeholder="Ordner wählen oder neuen Namen eingeben"><datalist id="leFolderSuggestions">${folderOptions}</datalist></div><button class="soft-btn" id="leFolderAdd">+ Zuweisen</button></div><p class="small muted">Die Liste wird nicht dupliziert: dieselbe Liste kann an mehreren Stellen erscheinen. Eine Änderung gilt dann überall.</p></div>
     <div class="section"><div class="eyebrow">In welchen Übungen soll die Liste auftauchen?</div><div class="game-tag-grid" id="leGameTags">${gameTagCheckboxes(selected)}</div><p class="small muted">Diese Zuordnung kannst du jederzeit ändern. So zeigt ein Spiel später nur passende Listen an.</p></div>
-    <div class="field section"><label>Einträge ${kind==='pair'?'· pro Zeile A | B':'· ein Eintrag pro Zeile'}</label><textarea id="leText" class="list-editor-text">${esc(listEditorText(L))}</textarea></div>
+    <div class="field section"><div class="list-editor-modebar"><label>Einträge</label><div class="segmented"><button type="button" class="seg-btn active" id="leModeFormatted">Aufgelistet</button><button type="button" class="seg-btn" id="leModeRaw">Unformatiert</button></div></div><textarea id="leText" class="list-editor-text">${esc(listEditorFormattedText(L))}</textarea><div class="small muted" id="leModeHelp">Ein Eintrag pro Zeile${kind==='pair'?' · A | B pro Zeile':''}. Für große Einfügungen kannst du auf „Unformatiert“ wechseln.</div></div>
     <div class="modal-foot">${returnReviewScope?`<button class="soft-btn" id="leBackReview">← Importprüfung</button>`:''}<button class="soft-btn" id="leDownload">Bearbeitete Liste exportieren</button><button class="primary-btn" id="leSave">Änderungen speichern</button></div>`);
   $('#leKind').value=kind;
-  $('#leSave').onclick=()=>{L.title=$('#leTitle').value.trim()||L.title;L.kind=$('#leKind').value;L.syllableSeparator=$('#leSyllSep').value.trim();L.items=parseEditorItems(L,$('#leText').value,L.syllableSeparator);rebuildListPairs(L);L.gameTags=$$('#leGameTags input:checked').map(x=>x.value);if(!L.gameTags.includes('session'))L.gameTags.unshift('session');if(L.review){L.review.status='checked';L.review.checkedAt=new Date().toISOString();}saveState();session=null;game={};closeModal();renderLists();toast('Liste aktualisiert');if(returnReviewScope)setTimeout(()=>openImportReview(returnReviewScope),30);};
-  $('#leDownload').onclick=()=>{const txt=$('#leText').value;downloadBlob(`${safeFilename($('#leTitle').value||L.title)}.txt`,new Blob([txt],{type:'text/plain;charset=utf-8'}));};
+  const renderFolders=()=>{$('#leFolderChips').innerHTML=[...folderSet].map(f=>`<button type="button" class="folder-assignment-chip" data-remove-folder="${esc(f)}"><span>${esc(f)}</span><b>×</b></button>`).join('');$$('[data-remove-folder]').forEach(b=>b.onclick=()=>{if(folderSet.size<=1)return toast('Mindestens ein Ordner muss bleiben.');folderSet.delete(b.dataset.removeFolder);renderFolders();});};renderFolders();
+  $('#leFolderAdd').onclick=()=>{const f=$('#leFolderInput').value.trim();if(!f)return;folderSet.add(f);$('#leFolderInput').value='';renderFolders();};
+  const convertMode=next=>{if(next===editorMode)return;const entrySep=$('#leEntrySep').value,syllSep=$('#leSyllSep').value;const tempItems=parseEditorItems({...L,kind:$('#leKind').value},$('#leText').value,syllSep,editorMode,entrySep);const temp={...L,kind:$('#leKind').value,items:tempItems,entrySeparator:entrySep};$('#leText').value=next==='raw'?listEditorRawText(temp,tempItems,entrySep):listEditorFormattedText(temp,tempItems);editorMode=next;$('#leModeFormatted').classList.toggle('active',next==='formatted');$('#leModeRaw').classList.toggle('active',next==='raw');$('#leModeHelp').textContent=next==='raw'?`Rohansicht · Trennung: ${entrySep||'Zeilenumbruch'}. Hier kannst du lange Blöcke direkt einfügen.`:`Ein Eintrag pro Zeile${temp.kind==='pair'?' · A | B pro Zeile':''}.`;};
+  $('#leModeFormatted').onclick=()=>convertMode('formatted');$('#leModeRaw').onclick=()=>convertMode('raw');
+  $('#leSave').onclick=()=>{L.title=$('#leTitle').value.trim()||L.title;L.kind=$('#leKind').value;L.entrySeparator=$('#leEntrySep').value;L.syllableSeparator=$('#leSyllSep').value.trim();L.items=parseEditorItems(L,$('#leText').value,L.syllableSeparator,editorMode,L.entrySeparator);rebuildListPairs(L);setListFolders(L,[...folderSet]);L.gameTags=$$('#leGameTags input:checked').map(x=>x.value);if(!L.gameTags.includes('session'))L.gameTags.unshift('session');if(L.review){L.review.status='checked';L.review.checkedAt=new Date().toISOString();}saveState();session=null;game={};closeModal();renderLists();toast('Liste aktualisiert');if(returnReviewScope)setTimeout(()=>openImportReview(returnReviewScope),30);};
+  $('#leDownload').onclick=()=>{const tempItems=parseEditorItems({...L,kind:$('#leKind').value},$('#leText').value,$('#leSyllSep').value,editorMode,$('#leEntrySep').value);const text=editorMode==='raw'?listEditorRawText({...L,entrySeparator:$('#leEntrySep').value},tempItems,$('#leEntrySep').value):listEditorFormattedText({...L,kind:$('#leKind').value},tempItems);downloadBlob(`${safeFilename($('#leTitle').value||L.title)}.txt`,new Blob([text],{type:'text/plain;charset=utf-8'}));};
   $('#leBackReview')?.addEventListener('click',()=>{closeModal();renderLists();setTimeout(()=>openImportReview(returnReviewScope),20);});
 }
 function openItemEditor(sourceList,index){
@@ -607,7 +678,7 @@ function openImportReview(scope=state.lastImportBatchId||'pending'){
       <div class="import-review-summary"><button class="review-filter ${filter==='all'?'active':''}" data-review-filter="all">Alle <strong>${target.length}</strong></button><button class="review-filter ${filter==='pending'?'active':''}" data-review-filter="pending">Ungeprüft <strong>${pendingCount}</strong></button><button class="review-filter ${filter==='warning'?'active':''}" data-review-filter="warning">Warnungen <strong>${warningCount}</strong></button><button class="review-filter ${filter==='checked'?'active':''}" data-review-filter="checked">Geprüft <strong>${checkedCount}</strong></button></div>
       ${batch?.failed?.length?`<div class="error-banner"><strong>${batch.failed.length} Dateien konnten nicht gelesen werden.</strong><br>${batch.failed.slice(0,8).map(x=>`${esc(x.name)} · ${esc(x.reason)}`).join('<br>')}${batch.failed.length>8?'<br>…':''}</div>`:''}
       <div class="import-review-table"><div class="import-review-head"><span>Liste / Ordner</span><span>Typ</span><span>Trennung</span><span>Einträge</span><span>Übungen</span><span>Erkennung</span><span>Aktion</span></div>
-      ${shown.length?shown.map(L=>{const r=L.review||{},tags=listGameTags(L).filter(x=>x!=='session');return `<div class="import-review-row ${esc(r.status||'')}"><div class="review-list-main"><strong>${esc(L.title)}</strong><small>${esc(L.category||'Eigene Listen')}</small>${r.warnings?.length?`<small class="review-warning-text">${r.warnings.map(esc).join(' · ')}</small>`:''}</div><div data-label="Typ">${esc(listKindLabel(L))}</div><div data-label="Trennung"><code>${esc(r.separator||'–')}</code></div><div data-label="Einträge">${L.items?.length||0}</div><div data-label="Übungen" class="review-game-cell">${tags.length?tags.slice(0,5).map(t=>`<span>${esc(LIST_GAME_LABELS[t]||t)}</span>`).join(''):'<span>Wortanzeige</span>'}</div><div data-label="Erkennung"><span class="review-confidence ${esc(r.confidence||'unknown')}">${esc(confidenceLabel(r.confidence))}</span><br><span class="list-review-pill ${esc(r.status||'new')}">${esc(listReviewStatusLabel(L)||'NEU')}</span></div><div class="review-row-actions">${r.status==='checked'?`<button class="soft-btn compact-btn" data-review-reopen="${esc(L.id)}">Nochmal prüfen</button>`:`<button class="review-done-btn compact-btn" data-review-done="${esc(L.id)}">✓ Geprüft</button>`}<button class="soft-btn compact-btn" data-review-edit="${esc(L.id)}">Bearbeiten</button></div></div>`}).join(''):`<div class="import-review-empty"><strong>Für diesen Filter ist nichts mehr offen.</strong><span>Du kannst das Fenster schließen oder einen anderen Filter wählen.</span></div>`}</div>
+      ${shown.length?shown.map(L=>{const r=L.review||{},tags=listGameTags(L).filter(x=>x!=='session');return `<div class="import-review-row ${esc(r.status||'')}"><div class="review-list-main"><strong>${esc(L.title)}</strong><small>${esc(listFolders(L).join(' · '))}</small>${r.warnings?.length?`<small class="review-warning-text">${r.warnings.map(esc).join(' · ')}</small>`:''}</div><div data-label="Typ">${esc(listKindLabel(L))}</div><div data-label="Trennung"><code>${esc(r.separator||'–')}</code></div><div data-label="Einträge">${L.items?.length||0}</div><div data-label="Übungen" class="review-game-cell">${tags.length?tags.slice(0,5).map(t=>`<span>${esc(LIST_GAME_LABELS[t]||t)}</span>`).join(''):'<span>Wortanzeige</span>'}</div><div data-label="Erkennung"><span class="review-confidence ${esc(r.confidence||'unknown')}">${esc(confidenceLabel(r.confidence))}</span><br><span class="list-review-pill ${esc(r.status||'new')}">${esc(listReviewStatusLabel(L)||'NEU')}</span></div><div class="review-row-actions">${r.status==='checked'?`<button class="soft-btn compact-btn" data-review-reopen="${esc(L.id)}">Nochmal prüfen</button>`:`<button class="review-done-btn compact-btn" data-review-done="${esc(L.id)}">✓ Geprüft</button>`}<button class="soft-btn compact-btn" data-review-edit="${esc(L.id)}">Bearbeiten</button></div></div>`}).join(''):`<div class="import-review-empty"><strong>Für diesen Filter ist nichts mehr offen.</strong><span>Du kannst das Fenster schließen oder einen anderen Filter wählen.</span></div>`}</div>
       <div class="modal-foot import-review-foot"><span class="muted small">Prüfstatus, Ordnerzustand und Zuordnungen werden im WortZeit-Backup mitgesichert.</span>${pendingCount?`<button class="review-done-btn" id="reviewAllDone">✓ Alle ${pendingCount} als geprüft markieren</button>`:''}<button class="primary-btn" data-close-review>Fertig</button></div>`;
     $$('[data-close-review]').forEach(b=>b.onclick=()=>{closeModal();renderLists();});
     $$('[data-review-filter]').forEach(b=>b.onclick=()=>{filter=b.dataset.reviewFilter;draw();});
@@ -627,7 +698,7 @@ async function importFiles(files,folder=false){
       const rel=file.webkitRelativePath||file.name;
       if(lower.endsWith('.json')){
         const obj=JSON.parse(txt.replace(/^\uFEFF/,''));
-        if(obj?.format==='wortzeit-list'&&obj.list){const L={...obj.list,id:uid('list'),bundled:false,sourcePath:obj.list.sourcePath||rel};L.review=createImportReview(L,{batchId,clean:'',separator:'WortZeit'});state.userLists.push(L);batchListIds.push(L.id);imported++;continue;}
+        if(obj?.format==='wortzeit-list'&&obj.list){const L=normalizeListStorage({...obj.list,id:uid('list'),bundled:false,sourcePath:obj.list.sourcePath||rel});L.review=createImportReview(L,{batchId,clean:'',separator:'WortZeit'});state.userLists.push(L);batchListIds.push(L.id);imported++;continue;}
       }
       const clean=lower.endsWith('.rtf')?decodeRtfBrowser(txt):txt;
       const likelySep=detectImportSeparator(clean,lower);
@@ -635,7 +706,7 @@ async function importFiles(files,folder=false){
       if(!pieces.length)continue;
       const pathParts=rel.split('/');const idx=pathParts.findIndex(x=>x.toLowerCase()==='patienten');let category='Importiert';
       if(pathParts.length>1) category=pathParts.slice(0,-1).join(' / ');
-      const L=makeUserList(file.name.replace(/\.[^.]+$/,''),pieces,category,rel);
+      const L=makeUserList(file.name.replace(/\.[^.]+$/,''),pieces,category,rel,'',likelySep||'');
       if(/(^|\/)memory(\/|$)|memo/i.test(rel)){L.kind='pair';L.pairs=[];for(let i=0;i<pieces.length-1;i+=2)L.pairs.push({id:uid('pair'),a:pieces[i],b:pieces[i+1]});}
       if(/feuerwerk|geschichte.*auswahl|auswahl.*geschichte/i.test(`${L.title} ${rel}`)&&L.items.length%5===0)L.kind='choiceStory';
       L.gameTags=inferListGameTags(L);L.review=createImportReview(L,{batchId,clean,separator:likelySep});state.userLists.push(L);batchListIds.push(L.id);imported++;
@@ -822,7 +893,8 @@ function renderSorting(){
   if(!game.sort)newSortingPuzzle(false);const g=game.sort,p=g.p,cols=p.solutions.length;
   const candidateGroups=p.attributes.map((attr,ai)=>({attr,values:shuffle(p.solutions.map(r=>r[ai]))}));
   if(!g.candidateGroups)g.candidateGroups=candidateGroups;
-  const controls=`<div class="score-box">Punkte ${state.stats.sortScore}</div><button class="soft-btn" id="sortPrev" title="Vorherige Aufgabe">← Aufgabe</button><button class="soft-btn" id="sortReset">Reset</button><button class="soft-btn" id="sortNext">Nächstes</button>`;
+  const currentPuzzleIndex=DATA.sortingPuzzles.indexOf(p);const puzzlePicker=`<label class="sorting-puzzle-picker"><span>Übung</span><select id="sortPuzzleSelect" aria-label="Sortierübung auswählen">${DATA.sortingPuzzles.map((q,i)=>`<option value="${i}" ${i===currentPuzzleIndex?'selected':''}>${esc(q.title||`Aufgabe ${i+1}`)}</option>`).join('')}</select></label>`;
+  const controls=`${puzzlePicker}<div class="score-box">Punkte ${state.stats.sortScore}</div><button class="soft-btn" id="sortPrev" title="Vorherige Aufgabe">← Aufgabe</button><button class="soft-btn" id="sortReset">Reset</button><button class="soft-btn" id="sortNext">Nächstes</button>`;
   const primary=`<button class="primary-btn game-check-btn" data-game-primary id="sortCheck">Prüfen</button>`;
   $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="game-shell">${gameHeader(p.title,`${esc(p.question)}${p.difficulty?` · Schwierigkeit ${p.difficulty}`:''}`,controls,primary)}<div class="game-board"><div class="sort-layout"><div class="card sort-hints"><h3>Hinweise</h3><ol class="hint-list">${p.hints.map(h=>`<li>${esc(h)}</li>`).join('')}</ol></div><div class="sort-interaction"><div class="card sort-targets"><div class="sort-grid">${p.attributes.map((attr,ai)=>`<div class="sort-row" style="--cols:${cols}"><div class="sort-label">${esc(attr)}</div>${g.placed[ai].map((v,ci)=>`<button class="sort-cell" data-cell="${ai}:${ci}" draggable="${v!=null?'true':'false'}">${esc(v||'')}</button>`).join('')}</div>`).join('')}</div>${g.message?`<div class="sort-message ${g.message==='Richtig!'?'success-banner':'error-banner'}">${esc(g.message)}</div>`:''}</div><div class="card sort-candidates"><h3>Auswahl</h3><div class="sort-candidate-groups">${g.candidateGroups.map((cg,ai)=>`<div class="candidate-group"><h4>${esc(cg.attr)}</h4><div class="candidate-bank">${cg.values.map((v,vi)=>{const occurrenceBefore=cg.values.slice(0,vi).filter(x=>x===v).length;const usedCount=g.placed[ai].filter(x=>x===v).length;const used=usedCount>occurrenceBefore;const sel=g.selected&&g.selected.ai===ai&&g.selected.vi===vi;return `<button class="candidate ${sel?'selected':''} ${used?'used':''}" data-candidate="${ai}:${vi}" draggable="${used?'false':'true'}" ${used?'disabled':''}>${esc(v)}</button>`}).join('')}</div></div>`).join('')}</div></div></div></div></div></div>`;
   bindPlanBar();bindGameChrome();
@@ -835,6 +907,7 @@ function renderSorting(){
     b.ondragover=e=>{e.preventDefault();b.classList.add('drag-over');};b.ondragleave=()=>b.classList.remove('drag-over');
     b.ondrop=e=>{e.preventDefault();b.classList.remove('drag-over');const raw=e.dataTransfer.getData('text/plain');if(raw.startsWith('candidate:')){const [,a,v]=raw.split(':');if(+a===ai)assign(ai,+v,ci);else toast('Dieser Begriff gehört in eine andere Zeile.');}else if(raw.startsWith('cell:')){const [,a,c]=raw.split(':');if(+a===ai&&+c!==ci){[g.placed[ai][+c],g.placed[ai][ci]]=[g.placed[ai][ci],g.placed[ai][+c]];g.message='';renderSorting();}}};
   });
+  $('#sortPuzzleSelect').onchange=e=>{const idx=+e.target.value;if(!Number.isInteger(idx)||!DATA.sortingPuzzles[idx])return;let pos=game.sortOrder.indexOf(idx);if(pos<0){game.sortOrder.push(idx);pos=game.sortOrder.length-1;}game.sortPos=pos;newSortingPuzzle(false);renderSorting();};
   $('#sortPrev').onclick=()=>{newSortingPuzzle(-1);renderSorting();};
   $('#sortReset').onclick=()=>{g.placed=p.attributes.map(()=>Array(cols).fill(null));g.selected=null;g.message='';renderSorting();};
   $('#sortNext').onclick=()=>{newSortingPuzzle(1);renderSorting();};
@@ -954,11 +1027,11 @@ function fitSessionText(){
   if(!wrap||!el)return;
   const wr=wrap.getBoundingClientRect();if(wr.width<20||wr.height<20)return;
   const multi=el.classList.contains('multi');
-  let size=Math.min(multi?96:140, Math.max(28, wr.height*(multi ? .30 : .42)), Math.max(28,wr.width*(multi ? .09 : .115)));
+  const factor=clamp((+state.settings.sessionFontScale||50)/50,.5,2);let size=Math.min((multi?96:140)*factor, Math.max(28, wr.height*(multi ? .30 : .42)*factor), Math.max(28,wr.width*(multi ? .09 : .115)*factor));
   el.style.fontSize=`${size}px`;
   el.style.lineHeight='1.08';
   const fits=()=>el.scrollHeight<=wrap.clientHeight-8 && el.scrollWidth<=wrap.clientWidth-8;
-  while(size>24&&!fits()){size-=2;el.style.fontSize=`${size}px`;}
+  while(size>12&&!fits()){size-=2;el.style.fontSize=`${size}px`;}
 }
 
 // ---------- Syllable hex ----------
@@ -1155,7 +1228,7 @@ function planEditorStep(s,i){
   return `<div class="plan-step"><div class="plan-index">${i+1}</div><div class="form-row"><div class="field"><label>Übung</label><select data-step-activity="${i}">${actOptions}</select></div><div class="field grow"><label>Material</label><select data-step-list="${i}" ${needsList?'':'disabled'}>${listOptions||'<option>Keine passende Liste vorhanden</option>'}</select></div></div><div class="plan-step-actions"><button class="icon-btn" data-step-up="${i}" title="Nach oben">↑</button><button class="icon-btn" data-step-down="${i}" title="Nach unten">↓</button><button class="icon-btn" data-step-remove="${i}" title="Entfernen">×</button></div></div>`;
 }
 function packageFromPlan(plan){
-  const listIds=[...new Set(plan.steps.flatMap(s=>(s.listIds?.length?s.listIds:[s.listId]).filter(Boolean)))];const snapshots=listIds.map(id=>allLists().find(L=>L.id===id)).filter(Boolean).map(L=>({id:L.id,title:L.title,category:L.category,kind:L.kind,items:L.items,pairs:L.pairs||[],gameTags:listGameTags(L),syllableSeparator:L.syllableSeparator||''}));
+  const listIds=[...new Set(plan.steps.flatMap(s=>(s.listIds?.length?s.listIds:[s.listId]).filter(Boolean)))];const snapshots=listIds.map(id=>allLists().find(L=>L.id===id)).filter(Boolean).map(L=>({id:L.id,title:L.title,category:L.category,folders:listFolders(L),kind:L.kind,items:L.items,pairs:L.pairs||[],gameTags:listGameTags(L),entrySeparator:L.entrySeparator||'',syllableSeparator:L.syllableSeparator||''}));
   return {format:'wortzeit-speechpack',version:2,title:plan.title,createdAt:new Date().toISOString(),steps:plan.steps.map(s=>({...s})),lists:snapshots,settings:{lang:state.settings.lang,theme:state.settings.theme,brightness:state.settings.brightness,instantAudio:state.settings.instantAudio,itemsPerScreen:state.settings.itemsPerScreen,order:state.settings.order,endless:state.settings.endless,interval:state.settings.interval,bpm:state.settings.bpm,beats:state.settings.beats}};
 }
 async function exportPlan(plan){if(!plan)return;const pkg=packageFromPlan(plan);pkg.audio={};for(const L of pkg.lists||[]){for(const it of L.items||[]){const blob=await audioGet(`${L.id}:${it.id}`);if(blob){pkg.audio[`${L.id}:${it.id}`]={type:blob.type||'audio/webm',data:await blobToBase64(blob)};}}}downloadBlob(`${safeFilename(plan.title)}.speechpack`,new Blob([JSON.stringify(pkg,null,2)],{type:'application/json'}));toast('Therapiepaket erstellt');}
@@ -1164,7 +1237,7 @@ function base64ToBlob(data,type='application/octet-stream'){const bin=atob(data)
 function startLocalPlan(plan){if(!plan||!plan.steps.length)return toast('Der Plan enthält noch keine Schritte');activePlanRun={pkg:packageFromPlan(plan),index:0,local:true};launchPlanStep();}
 function launchPlanStep(){
   if(!activePlanRun)return;const step=activePlanRun.pkg.steps[activePlanRun.index];const ids=(step.listIds?.length?step.listIds:[step.listId]).filter(Boolean);
-  for(const id of ids){const list=activePlanRun.pkg.lists.find(L=>L.id===id);if(list&&!allLists().find(L=>L.id===list.id))state.userLists.push({...list,bundled:false,category:`Paket · ${activePlanRun.pkg.title}`});}
+  for(const id of ids){const list=activePlanRun.pkg.lists.find(L=>L.id===id);if(list&&!allLists().find(L=>L.id===list.id))state.userLists.push(normalizeListStorage({...list,bundled:false,category:`Paket · ${activePlanRun.pkg.title}`}));}
   if(ids.length){state.currentListId=ids[0];state.activeListIds=ids;ids.forEach(rememberList);saveState();}
   game={};session=null;route=step.activity||'session';render();
 }
@@ -1178,7 +1251,7 @@ function renderSettings(){
     <div class="card"><button class="icon-btn card-help" data-settings-help="design" aria-label="Hilfe zu Design">?</button><h2>Design</h2><p>Wähle die Darstellung, die sich am angenehmsten lesen lässt. Die Änderung ist sofort sichtbar.</p><div class="theme-picks">${[['calm','Ruhig'],['light','Hell'],['dark','Dunkel'],['contrast','Schwarz / Gelb'],['warm','Warm']].map(([k,v])=>`<button class="theme-pick ${s.theme===k?'active':''}" data-theme-pick="${k}">${v}</button>`).join('')}</div></div>
     <div class="card"><button class="icon-btn card-help" data-settings-help="session" aria-label="Hilfe zu Sitzungsstandard">?</button><h2>Sitzungsstandard</h2><p>Diese Werte werden vorgeschlagen, wenn eine neue Wort-Sitzung beginnt.</p><div class="field"><label>Wörter gleichzeitig</label><select id="setAmount">${[1,2,3,4,5,6].map(n=>`<option>${n}</option>`).join('')}</select></div><label class="toggle"><input id="setEndless" type="checkbox"> Nach dem letzten Wort wieder von vorne beginnen</label></div>
     <div class="card"><button class="icon-btn card-help" data-settings-help="stories" aria-label="Hilfe zu Bildergeschichten">?</button><h2>Bildergeschichten</h2><p>Die Bilddateien hatten keine eindeutigen Dateinamen. Hier kannst du die richtigen Titel einmal zuordnen.</p><div class="toolbar"><button class="secondary-btn" id="storyTitles">Titel zuordnen</button></div></div>
-    <div class="card"><button class="icon-btn card-help" data-settings-help="data" aria-label="Hilfe zu Daten">?</button><h2>Daten</h2><p>Sichere Listen, Import-Prüfstatus, Ordnerzustand, Patienten, Pläne, Einstellungen und Aufnahmen in einer einzigen WortZeit-Sicherung.</p><div class="toolbar"><button class="secondary-btn" id="showIntroSettings">Kurze Einführung</button><button class="secondary-btn" id="browserCheck">Browser prüfen</button><button class="secondary-btn" id="backupState">Backup speichern</button><button class="secondary-btn" id="restoreState">Backup öffnen</button><button class="danger-btn" id="resetState">Testdaten zurücksetzen</button></div><input id="restoreStatePicker" type="file" accept=".json" hidden></div>
+    <div class="card"><button class="icon-btn card-help" data-settings-help="data" aria-label="Hilfe zu Daten">?</button><h2>Daten & Geräte</h2><p>Ein <strong>WortZeit-Datenpaket</strong> ist gleichzeitig Backup und Geräteübertragung. Es enthält deine eigenen Listen, Ordnerzuordnungen, Patienten, Pläne, Einstellungen und Aufnahmen.</p><div class="data-inventory"><strong>${state.userLists.length}</strong><span>eigene/importierte Listen</span><strong>${state.userLists.reduce((n,L)=>n+(L.items?.length||0),0)}</strong><span>Einträge</span><strong>${knownFolders().length}</strong><span>Ordner</span></div><div class="offline-readiness" id="offlineReadiness"><strong>Offline</strong><span>${navigator.onLine?'Online geöffnet · Offline-Kopie kann vorbereitet werden':'Du arbeitest gerade offline'}</span></div><div class="toolbar"><button class="secondary-btn" id="showIntroSettings">Kurze Einführung</button><button class="secondary-btn" id="browserCheck">Browser prüfen</button><button class="secondary-btn" id="offlinePrepare">Offline vorbereiten</button><button class="secondary-btn" id="backupState">Datenpaket speichern</button><button class="secondary-btn" id="shareState">Datenpaket teilen</button><button class="secondary-btn" id="restoreState">Datenpaket öffnen</button><button class="danger-btn" id="resetState">Testdaten zurücksetzen</button></div><input id="restoreStatePicker" type="file" accept=".wortzeit,.json" hidden></div>
   </div>`;
   $('#setLang').value=s.lang;$('#setAmount').value=s.itemsPerScreen;$('#setEndless').checked=s.endless;
   $('#setLang').onchange=e=>{s.lang=e.target.value;saveState();applyI18n();renderSettings();};
@@ -1191,7 +1264,7 @@ function renderSettings(){
   $('#browserCheck')?.addEventListener('click',()=>{
     const checks=[
       ['Therapiepakete öffnen',typeof FileReader!=='undefined'],
-      ['Lokale Daten speichern',typeof localStorage!=='undefined'&&typeof indexedDB!=='undefined'],
+      ['Dauerhafte lokale Datenbank',typeof indexedDB!=='undefined'],
       ['Audio aufnehmen',!!navigator.mediaDevices?.getUserMedia&&'MediaRecorder' in window],
       ['Offline-Zwischenspeicher','serviceWorker' in navigator],
       ['OpenDocument direkt importieren','DecompressionStream' in window],
@@ -1199,30 +1272,30 @@ function renderSettings(){
     ];
     helpModal('Browser prüfen',`<p>Die Kernfunktionen laufen in modernen Browsern. Einzelne Komfortfunktionen können je nach Browser fehlen.</p><div class="browser-check-list">${checks.map(([n,ok])=>`<div class="browser-check-row"><strong>${ok?'✓':'–'} ${esc(n)}</strong><span>${ok?'verfügbar':'Fallback verwenden'}</span></div>`).join('')}</div><p class="small muted">Wenn „Ganzen Ordner auswählen“ fehlt, kannst du mehrere Dateien gleichzeitig markieren. Wenn OpenDocument fehlt, importiere ODT/ODS einmal auf einem anderen aktuellen Browser oder speichere die Datei als RTF/TXT.</p>`);
   });
-  $('#backupState').onclick=async()=>{const btn=$('#backupState'),label=btn.textContent;btn.disabled=true;btn.textContent='Backup wird erstellt …';try{const entries=await audioAllEntries(),audio={};for(const [key,blob] of entries){if(blob instanceof Blob)audio[key]={type:blob.type||'audio/webm',data:await blobToBase64(blob)};}const payload={format:'wortzeit-local-backup',version:2,createdAt:new Date().toISOString(),state,audio};downloadBlob(`WortZeit_Backup_${new Date().toISOString().slice(0,10)}.json`,new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));toast(`Backup gespeichert · ${state.userLists.length} eigene Listen · ${Object.keys(audio).length} Aufnahmen`);}catch(err){console.warn(err);toast('Backup konnte nicht erstellt werden');}finally{btn.disabled=false;btn.textContent=label;}};
+  const makeDataPackage=async()=>{
+    await flushStateSave();const entries=await audioAllEntries(),audio={};for(const [key,blob] of entries){if(blob instanceof Blob)audio[key]={type:blob.type||'audio/webm',data:await blobToBase64(blob)};}
+    const snapshot=cloneData(state);normalizeAllUserLists(snapshot);const manifest={listCount:snapshot.userLists.length,itemCount:snapshot.userLists.reduce((n,L)=>n+(L.items?.length||0),0),folderCount:[...new Set(snapshot.userLists.flatMap(listFolders))].length,patientCount:snapshot.patients.length,planCount:snapshot.plans.length,audioCount:Object.keys(audio).length};
+    const payload={format:'wortzeit-local-backup',version:3,createdAt:new Date().toISOString(),manifest,state:snapshot,audio};const raw=JSON.stringify(payload,null,2);return {payload,raw,blob:new Blob([raw],{type:'application/json'}),manifest};
+  };
+  const dataPackageFilename=()=>`WortZeit_Datenpaket_${new Date().toISOString().slice(0,10)}.wortzeit`;
+  const packageSummary=(m,bytes=0)=>`${m.listCount} Listen · ${m.itemCount} Einträge · ${m.folderCount} Ordner · ${m.audioCount} Aufnahmen${bytes?` · ${(bytes/1024/1024).toFixed(bytes>1024*1024?1:2)} MB`:''}`;
+  $('#backupState').onclick=async()=>{const btn=$('#backupState'),label=btn.textContent;btn.disabled=true;btn.textContent='Datenpaket wird erstellt …';try{const pack=await makeDataPackage();downloadBlob(dataPackageFilename(),pack.blob);toast(`Datenpaket gespeichert · ${packageSummary(pack.manifest,pack.blob.size)}`);}catch(err){console.warn(err);toast('Datenpaket konnte nicht erstellt werden');}finally{btn.disabled=false;btn.textContent=label;}};
+  $('#shareState').onclick=async()=>{const btn=$('#shareState'),label=btn.textContent;btn.disabled=true;btn.textContent='Wird vorbereitet …';try{const pack=await makeDataPackage(),file=new File([pack.blob],dataPackageFilename(),{type:'application/json'});if(navigator.share&&navigator.canShare?.({files:[file]})){await navigator.share({title:'WortZeit Datenpaket',text:'WortZeit-Daten auf ein anderes Gerät übertragen',files:[file]});toast(`Datenpaket bereit · ${packageSummary(pack.manifest,pack.blob.size)}`);}else{downloadBlob(file.name,pack.blob);toast('Direktes Teilen unterstützt dieser Browser nicht. Das Datenpaket wurde stattdessen gespeichert.');}}catch(err){if(err?.name!=='AbortError'){console.warn(err);toast('Datenpaket konnte nicht geteilt werden');}}finally{btn.disabled=false;btn.textContent=label;}};
+  $('#offlinePrepare').onclick=async()=>{const btn=$('#offlinePrepare'),label=btn.textContent;btn.disabled=true;btn.textContent='Offline wird vorbereitet …';try{if(!('serviceWorker' in navigator)||!('caches' in window))throw new Error('Dieser Browser unterstützt den Offline-Speicher nicht.');const reg=await navigator.serviceWorker.ready;await reg.update().catch(()=>{});if(navigator.storage?.persist){try{await navigator.storage.persist();}catch{}}const cache=await caches.open(OFFLINE_CACHE);await cache.addAll(OFFLINE_SHELL);const checks=await Promise.all(OFFLINE_SHELL.map(u=>cache.match(u)));if(checks.some(x=>!x))throw new Error('Nicht alle App-Dateien wurden gespeichert.');$('#offlineReadiness').innerHTML='<strong>Offline bereit</strong><span>WortZeit kann in diesem Browser nach dem ersten Online-Start auch ohne Internet geöffnet werden.</span>';toast('Offline-Kopie vollständig vorbereitet');}catch(err){console.warn(err);toast(err.message||'Offline-Kopie konnte nicht vorbereitet werden');}finally{btn.disabled=false;btn.textContent=label;}};
   $('#restoreState').onclick=()=>$('#restoreStatePicker').click();
   $('#restoreStatePicker').onchange=async e=>{
     const file=e.target.files?.[0];if(!file)return;
     try{
-      const obj=JSON.parse((await readFileText(file)).replace(/^\uFEFF/,''));
-      if(obj?.format!=='wortzeit-local-backup'||!obj.state)throw new Error('Kein WortZeit-Backup');
-      if(!confirm('Dieses Backup laden? Die lokalen WortZeit-Daten dieses Browsers werden durch den Sicherungsstand ersetzt.'))return;
-      const parsed=obj.state;
-      const next={...cloneData(DEFAULT_STATE),...parsed,
-        settings:{...DEFAULT_STATE.settings,...(parsed.settings||{})},stats:{...DEFAULT_STATE.stats,...(parsed.stats||{})},
-        userLists:Array.isArray(parsed.userLists)?parsed.userLists:[],patients:Array.isArray(parsed.patients)?parsed.patients:[],plans:Array.isArray(parsed.plans)?parsed.plans:[],
-        storyTitleOverrides:parsed.storyTitleOverrides&&typeof parsed.storyTitleOverrides==='object'?parsed.storyTitleOverrides:{},
-        activeListIds:Array.isArray(parsed.activeListIds)&&parsed.activeListIds.length?parsed.activeListIds:[parsed.currentListId||defaultList.id],
-        recentListIds:Array.isArray(parsed.recentListIds)?parsed.recentListIds:[],
-        importReviewBatches:Array.isArray(parsed.importReviewBatches)?parsed.importReviewBatches:[],lastImportBatchId:parsed.lastImportBatchId||null,
-        listFolderOpen:parsed.listFolderOpen&&typeof parsed.listFolderOpen==='object'?parsed.listFolderOpen:{},reviewMigrationVersion:Number(parsed.reviewMigrationVersion)||0};
-      migrateImportReviewState(next);
+      const obj=JSON.parse((await readFileText(file)).replace(/^\uFEFF/,''));if(obj?.format!=='wortzeit-local-backup'||!obj.state)throw new Error('Kein WortZeit-Datenpaket');
+      const parsed=obj.state,actualLists=Array.isArray(parsed.userLists)?parsed.userLists.length:0,actualItems=(parsed.userLists||[]).reduce((n,L)=>n+(L.items?.length||0),0);if(obj.manifest&&(obj.manifest.listCount!==actualLists||obj.manifest.itemCount!==actualItems))throw new Error('Das Datenpaket ist unvollständig oder beschädigt.');
+      const summary=obj.manifest||{listCount:actualLists,itemCount:actualItems,folderCount:[...new Set((parsed.userLists||[]).flatMap(listFolders))].length,patientCount:(parsed.patients||[]).length,planCount:(parsed.plans||[]).length,audioCount:Object.keys(obj.audio||{}).length};
+      if(!confirm(`Dieses WortZeit-Datenpaket laden?\n\n${packageSummary(summary,file.size)}\n\nDie lokalen WortZeit-Daten dieses Browsers werden durch diesen Stand ersetzt.`))return;
+      const next=normalizeLoadedState(parsed);normalizeAllUserLists(next);migrateImportReviewState(next);
       let restoredAudio=0;if(obj.version>=2&&obj.audio&&typeof obj.audio==='object'){await audioClearAll();for(const [key,a] of Object.entries(obj.audio)){try{await audioSet(key,base64ToBlob(a.data,a.type));restoredAudio++;}catch(err){console.warn('Audio restore failed',key,err);}}}
-      state=next;saveState();session=null;game={};applyTheme();updateHeader();renderSettings();toast(`Backup geladen · ${state.userLists.length} eigene Listen${obj.version>=2?` · ${restoredAudio} Aufnahmen`:''}`);
-    }catch(err){console.warn(err);toast('Backup konnte nicht gelesen werden');}
-    finally{e.target.value='';}
+      state=next;await persistStateSnapshot(cloneData(state));session=null;game={};applyTheme();updateHeader();renderSettings();toast(`Datenpaket geladen · ${state.userLists.length} Listen · ${state.userLists.reduce((n,L)=>n+(L.items?.length||0),0)} Einträge · ${restoredAudio} Aufnahmen`);
+    }catch(err){console.warn(err);toast(err.message||'Datenpaket konnte nicht gelesen werden');}finally{e.target.value='';}
   };
-  $('#resetState').onclick=async()=>{if(confirm('Eigene Listen, Patienten, Therapiepläne und Aufnahmen dieses Browsers wirklich zurücksetzen?')){localStorage.removeItem(STORAGE_KEY);await audioClearAll();state=cloneData(DEFAULT_STATE);session=null;game={};saveState();applyTheme();renderSettings();toast('Zurückgesetzt');}};
+  $('#resetState').onclick=async()=>{if(confirm('Eigene Listen, Patienten, Therapiepläne und Aufnahmen dieses Browsers wirklich zurücksetzen?')){localStorage.removeItem(STORAGE_KEY);await idbStateClear();await audioClearAll();state=cloneData(DEFAULT_STATE);session=null;game={};saveState();applyTheme();renderSettings();toast('Zurückgesetzt');}};
   bindPlanBar();
 }
 function settingsHelp(which){
@@ -1231,7 +1304,7 @@ function settingsHelp(which){
     design:['Design','Hier änderst du nur das Aussehen der App. Tippe auf ein Design und du siehst die Änderung sofort. Wähle einfach die Variante, die für dich und den Patienten am angenehmsten zu lesen ist.'],
     session:['Sitzungsstandard','Hier legst du fest, mit wie vielen Wörtern eine neue Wort-Sitzung normalerweise startet. „Wieder von vorne“ bedeutet: Nach dem letzten Wort beginnt die Liste erneut. Du kannst diese Werte später in jeder Sitzung noch ändern.'],
     stories:['Bildergeschichten','Die gelieferten Bilder heißen nur nach Aufnahmedatum. Deshalb zeigt die App zunächst neutrale Namen wie „Bildergeschichte 01“. Mit „Titel zuordnen“ kannst du anhand der Bildvorschau den passenden Titel auswählen. Die Zuordnung wird gespeichert.'],
-    data:['Daten','„Backup speichern“ erstellt eine vollständige WortZeit-Sicherung mit eigenen Listen, Spielzuordnungen, Import-Prüfstatus, geöffneten/geschlossenen Ordnern, Patienten, Therapieplänen, Einstellungen und Aufnahmen. Mit „Backup öffnen“ kannst du diesen Stand auf demselben oder einem anderen Gerät wiederherstellen. Eine gerade laufende Übung und Browser-Berechtigungen wie Mikrofonfreigabe gehören nicht zur Sicherung.']
+    data:['Daten & Geräte','„Datenpaket speichern“ erstellt eine vollständige portable WortZeit-Datei mit eigenen Listen, Mehrfach-Ordnerzuordnungen, Spielzuordnungen, Import-Prüfstatus, Patienten, Therapieplänen, Einstellungen und Aufnahmen. Genau dieselbe Datei kannst du auf Laptop, Handy oder Tablet über „Datenpaket öffnen“ laden. „Offline vorbereiten“ speichert die App-Dateien dieses Browsers, damit WortZeit nach einem erfolgreichen ersten Online-Start auch ohne Internet geöffnet werden kann. Browser-Berechtigungen wie Mikrofonfreigabe gehören nicht zum Datenpaket.']
   };
   const [title,body]=info[which]||['Einstellungen','Hier kannst du die App an deine Arbeitsweise anpassen.'];
   helpModal(title,`<p>${body}</p>`);
@@ -1261,7 +1334,7 @@ function renderPatientWelcome(pkg){
 async function loadSpeechpackFile(file,addToPlans=false){
   try{const text=await file.text();const pkg=JSON.parse(text.replace(/^\uFEFF/,''));if(pkg.format!=='wortzeit-speechpack'||!Array.isArray(pkg.steps))throw new Error('wrong format');
     if(pkg.audio){for(const [key,a] of Object.entries(pkg.audio)){try{await audioSet(key,base64ToBlob(a.data,a.type));}catch{}}}
-    if(addToPlans){const listIdMap=new Map();for(const L of pkg.lists||[]){let existing=allLists().find(x=>x.id===L.id);if(!existing){state.userLists.push({...L,bundled:false,category:`Import · ${pkg.title}`});existing=L;}listIdMap.set(L.id,existing.id);}const plan={id:uid('plan'),title:pkg.title||'Importierter Plan',steps:pkg.steps.map(s=>{const ids=(s.listIds?.length?s.listIds:[s.listId]).filter(Boolean).map(id=>listIdMap.get(id)||id);return {...s,listId:ids[0]||s.listId,listIds:ids};})};state.plans.push(plan);saveState();renderPlans();toast('Therapieplan importiert');return;}
+    if(addToPlans){const listIdMap=new Map();for(const L of pkg.lists||[]){let existing=allLists().find(x=>x.id===L.id);if(!existing){state.userLists.push(normalizeListStorage({...L,bundled:false,category:`Import · ${pkg.title}`}));existing=L;}listIdMap.set(L.id,existing.id);}const plan={id:uid('plan'),title:pkg.title||'Importierter Plan',steps:pkg.steps.map(s=>{const ids=(s.listIds?.length?s.listIds:[s.listId]).filter(Boolean).map(id=>listIdMap.get(id)||id);return {...s,listId:ids[0]||s.listId,listIds:ids};})};state.plans.push(plan);saveState();renderPlans();toast('Therapieplan importiert');return;}
     importedPatientPackage=pkg;patientMode=true;document.body.classList.add('patient-mode');if(pkg.settings){state.settings={...state.settings,...pkg.settings};applyTheme();}activePlanRun=null;renderPatientWelcome(pkg);
   }catch(e){console.error(e);toast('Diese Datei ist kein gültiges WortZeit-Therapiepaket.');}
 }
@@ -1271,19 +1344,19 @@ function contextualHelp(){
   const map={
     home:['Start','Wähle eine Liste oder starte direkt mit den Standardwörtern. Danach kannst du eine Wort-Sitzung, ein Spiel oder einen vorbereiteten Therapieplan öffnen.'],
     session:['Sitzung','Das große Wort ist die Übung. Tippe auf die Wortfläche oder auf → für das nächste Wort. Mit ← gehst du zurück. „↺ Anfang“ springt zum Beginn dieser Runde. Mit ▶ läuft die Liste automatisch. Die Helligkeit oben verändert den Hintergrund sofort.'],
-    lists:['Listen','Hier wählst und pflegst du dein Material. Ordner bleiben zunächst geschlossen und lassen sich durch Anklicken auf- und zuklappen. Nach einem Import öffnet sich „Import prüfen“ mit genau den neuen Listen, dem erkannten Typ, Trennzeichen und den passenden Spielen. Neu oder unklar erkannte Listen bleiben markiert, bis du sie als geprüft bestätigst. „Alle schließen“ bringt die Ordneransicht jederzeit wieder in einen ruhigen Zustand. Öffne eine Liste und wähle „Liste bearbeiten“, um Text, A/B-Typ, Silben und Spielzuordnungen zu ändern.'],
+    lists:['Listen','Hier wählst und pflegst du dein Material. Ordner bleiben zunächst geschlossen und lassen sich durch Anklicken auf- und zuklappen. Nach einem Import öffnet sich „Import prüfen“ mit genau den neuen Listen, dem erkannten Typ, Trennzeichen und den passenden Spielen. Neu oder unklar erkannte Listen bleiben markiert, bis du sie als geprüft bestätigst. „Alle schließen“ bringt die Ordneransicht jederzeit wieder in einen ruhigen Zustand. Öffne eine Liste und wähle „Liste bearbeiten“, um Text, A/B-Typ, Eintrags- und Silbentrenner, Spielzuordnungen und mehrere Ordner zu ändern. Eine Liste darf gleichzeitig in mehreren Therapie-Ordnern erscheinen. Du kannst sie außerdem per Drag & Drop auf einen vorhandenen Ordner ziehen. Im Editor wechselst du zwischen einer aufgelisteten und einer unformatierten Rohansicht.'],
     games:['Spiele','Wähle einfach ein Spiel. Wenn noch keine passende Liste gewählt ist, fragt WortZeit direkt beim Öffnen danach – du musst nicht erst zurück in die Listenverwaltung. Im Spiel kannst du die Liste oben jederzeit wieder wechseln. ? erklärt das Spiel, × oder Escape beendet es.'],
     patients:['Patienten','Hier kannst du einen einfachen Anzeigenamen anlegen und passende Listen zuordnen. So findest du das vorbereitete Material später schneller wieder.'],
     plans:['Therapiepläne','Ein Therapieplan verbindet mehrere Übungen in einer festen Reihenfolge. Du kannst ihn selbst starten oder als .speechpack-Datei weitergeben. Mit den Pfeilen änderst du die Reihenfolge der Schritte.'],
     letters:['Buchstaben','Baue das gesuchte Wort aus den Buchstaben unten. Du kannst einen Buchstaben antippen oder direkt auf eine beliebige freie Stelle ziehen. Bereits gesetzte Buchstaben lassen sich oben per Drag & Drop tauschen. Antippen entfernt einen gesetzten Buchstaben wieder. „Reset“ leert nur die aktuelle Lösung.<br><br><strong>Wofür gedacht:</strong> Wörter bewusst Buchstabe für Buchstabe zusammensetzen und ihre Reihenfolge bearbeiten.'],
     memory:['Memory','Zuerst wählst du Memory-Art, 8/12/16/24 Karten und 1 oder 2 Spieler. Danach startet das Spielfeld mit möglichst großen quadratischen Karten. Bei Audio-Memory wird das Wort mit der bereits in der Aufnahmebank gespeicherten Aufnahme gepaart und beim Umdrehen abgespielt. Mit „Paar halten AN“ bleiben zwei Karten offen, bis du „Weiter“ drückst.<br><br><strong>Wofür gedacht:</strong> Begriffe, Bilder oder gehörte Wörter miteinander in Beziehung setzen und wiedererkennen.'],
-    sorting:['Sortieren','Lies links die Hinweise. Rechts liegen die möglichen Antworten. Tippe eine Antwort an und danach das passende Feld – oder ziehe sie direkt dorthin. Bereits gesetzte Antworten kannst du ebenfalls verschieben. Wenn alles gefüllt ist, drücke oben rechts auf „Prüfen“. „Reset“ leert die Felder, „Nächstes“ öffnet ein anderes Rätsel.<br><br><strong>Wofür gedacht:</strong> Hinweise nacheinander aufnehmen, Zusammenhänge herstellen und Informationen passend zuordnen.'],
+    sorting:['Sortieren','Lies links die Hinweise. Rechts liegen die möglichen Antworten. Tippe eine Antwort an und danach das passende Feld – oder ziehe sie direkt dorthin. Bereits gesetzte Antworten kannst du ebenfalls verschieben. Wenn alles gefüllt ist, drücke oben rechts auf „Prüfen“. Über das Feld „Übung“ oben kannst du ein bestimmtes Rätsel direkt auswählen. „Reset“ leert die Felder, „Nächstes“ öffnet ein anderes Rätsel.<br><br><strong>Wofür gedacht:</strong> Hinweise nacheinander aufnehmen, Zusammenhänge herstellen und Informationen passend zuordnen.'],
     story:['Bildergeschichte','Bringe die vier Bilder in die richtige Reihenfolge. Du kannst zwei Bilder antippen oder sie ziehen. Sobald die Reihenfolge stimmt, erkennt WortZeit das automatisch – die Geschichte bleibt aber stehen. Erst mit „Weiter“ öffnest du die nächste, damit vorher in Ruhe darüber gesprochen werden kann.<br><br><strong>Wofür gedacht:</strong> Eine Handlung zeitlich ordnen und anschließend in eigenen Worten beschreiben oder erzählen.'],
     choiceStory:['Geschichte bauen','Lies den Satzanfang und wähle eine der vier Möglichkeiten. Es gibt hier bewusst kein Richtig oder Falsch. Deine Auswahl wird direkt an den Satz angefügt und bleibt Teil der Geschichte. Mit „Weiter“ gehst du zum nächsten Satz. Am Ende könnt ihr eure komplette Geschichte noch einmal lesen.<br><br><strong>Wofür gedacht:</strong> Sprache, Entscheidungen, Humor und gemeinsames Erzählen in einer fortlaufenden Situation verbinden.'],
     wheel:['Wortwalze','Drücke „Drehen“. Die Wörter laufen von oben nach unten durch eine große Walze. Du kannst Tempo und Schriftgröße einstellen. Entscheidend ist das Loslassen: Das Wort, das beim Loslassen unter dem Zeiger liegt, wird oben gesammelt. So musst du auch bei hoher Geschwindigkeit nicht exakt auf ein bewegtes Wort klicken.<br><br><strong>Wofür gedacht:</strong> Aus zufällig auftauchenden Begriffen spontan Sätze, Zusammenhänge oder kleine Geschichten bilden.'],
     syllables:['Silben','Die sechs Silben liegen groß und in Großbuchstaben genau an den sechs Eckpunkten des Hexagons. Sie stammen aus vollständigen Wörtern. Tippe oder ziehe sie nach oben; dort kannst du sie umsortieren. Sobald ein Wort erkannt wird, erscheint es groß in der Mitte. Reset leert die Auswahl, Mischen erzeugt eine neue Runde.<br><br><strong>Wofür gedacht:</strong> Silben in einer stabilen räumlichen Anordnung auswählen und schrittweise zu einem Wort zusammensetzen.'],
     semantic:['Wortnetz','In der Mitte steht ein Begriff. Die sechs Felder außen geben einfache Gesprächsimpulse: Kategorie, Verwendung, Ort, Eigenschaften, Aussehen/Teile und Verbindungen. Tippt die Felder an, wenn ihr sie gemeinsam bearbeitet habt. Es gibt keine automatische Bewertung.<br><br><strong>Wofür gedacht:</strong> Einen Begriff über seine Bedeutung und Beziehungen ausführlich beschreiben und dadurch verschiedene sprachliche Zugänge anbieten.'],
-    settings:['Einstellungen','Hier stellst du Sprache, Aussehen und wenige Startwerte ein. „Design“ verändert die App sofort. „Sitzungsstandard“ bestimmt nur, wie eine neue Wort-Sitzung normalerweise beginnt. Unter „Daten“ kannst du deine lokal gespeicherten Einstellungen sichern. Für die Bildergeschichten kannst du hier außerdem die richtigen Titel anhand einer Vorschau zuordnen.']
+    settings:['Einstellungen','Hier stellst du Sprache, Aussehen und wenige Startwerte ein. „Design“ verändert die App sofort. „Sitzungsstandard“ bestimmt nur, wie eine neue Wort-Sitzung normalerweise beginnt. Unter „Daten & Geräte“ kannst du deinen kompletten vorbereiteten Stand als WortZeit-Datenpaket sichern oder auf ein anderes Gerät übertragen und WortZeit für Offline-Arbeit vorbereiten. Für die Bildergeschichten kannst du hier außerdem die richtigen Titel anhand einer Vorschau zuordnen.']
   };
   const [title,body]=map[route]||map.home;
   helpModal(title,`<p>${body}</p>`);
@@ -1296,14 +1369,14 @@ function clickDefaultAction(){
 }
 
 // ---------- Service worker ----------
-if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.7.2',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
+if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.8.0',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
 
 // ---------- Global events/init ----------
 try{history.replaceState({wz:true,route:'home',depth:0},'',location.href);}catch{}
 $('#menuButton').onclick=openDrawer;$('#closeDrawer').onclick=closeDrawer;$('#scrim').onclick=closeDrawer;$('#helpButton').onclick=contextualHelp;$('#patientModeButton').onclick=enterPatientMode;$('.brand').onclick=()=>{if(!patientMode)nav('home');};$('.brand').onkeydown=e=>{if(!patientMode&&(e.key==='Enter'||e.key===' '))nav('home');};$$('.drawer-nav [data-route]').forEach(b=>b.onclick=()=>nav(b.dataset.route));$('#currentListButton').onclick=()=>nav('lists');
 $('#navBackButton')?.addEventListener('click',navigationBack);$('#navForwardButton')?.addEventListener('click',navigationForward);window.addEventListener('popstate',handleHistoryPop);
 window.addEventListener('keydown',e=>{const typing=e.target.matches('input,textarea,select,button,a')||e.target.isContentEditable;if(e.altKey&&e.key==='ArrowLeft'){e.preventDefault();navigationBack();return;}if(e.altKey&&e.key==='ArrowRight'){e.preventDefault();navigationForward();return;}if(e.key==='Escape'){if($('#modalRoot').innerHTML)closeModal();else if($('#drawer').classList.contains('open'))closeDrawer();else if(GAME_ROUTES.includes(route)){e.preventDefault();gameBack();}return;}if(!typing&&(e.key==='Enter'||e.key===' ')){if($('#modalRoot').innerHTML&&clickDefaultAction()){e.preventDefault();return;}if(GAME_ROUTES.includes(route)&&clickDefaultAction()){e.preventDefault();return;}}if(route==='session'&&!typing){if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();sessionNext();}if(e.key==='ArrowLeft'){e.preventDefault();sessionPrev();}}});
-window.addEventListener('beforeunload',()=>stopAutoplay());
+window.addEventListener('beforeunload',()=>{stopAutoplay();if(pendingStateSnapshot){const snap=pendingStateSnapshot;pendingStateSnapshot=null;persistStateSnapshot(snap);}});
 window.addEventListener('resize',()=>{if(route==='memory'&&game.memoryStage==='play')fitMemoryBoard();if(route==='story')fitStoryBoard();if(route==='wheel')fitWheelGeometry();if(route==='syllables')fitSyllableBoard();if(route==='session')fitSessionText();});
 
 if(patientMode)document.body.classList.add('patient-mode');
