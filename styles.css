@@ -1010,3 +1010,21 @@ body.session-mode .session-word:not(.multi){white-space:nowrap!important;max-wid
 .duplicate-actions{display:flex;align-items:center;justify-content:flex-end;gap:9px;flex-wrap:wrap;padding:12px 14px;border-top:1px solid var(--line);background:var(--surface-2)}
 .duplicate-actions>span{margin-right:auto;max-width:540px}
 @media(max-width:700px){.duplicate-row{grid-template-columns:30px minmax(0,1fr)}.duplicate-row>span:last-child{grid-column:2}.duplicate-actions{align-items:stretch;flex-direction:column}.duplicate-actions>span{margin:0}.duplicate-actions button{width:100%}}
+
+
+/* v0.8.6 layout and readability refinements */
+.list-browser{grid-template-columns:minmax(340px,430px) minmax(0,1fr)!important;align-items:start!important}
+.list-tree{max-height:calc(100vh - 205px)!important;padding:14px!important;scrollbar-gutter:stable both-edges}
+#listTree.section{margin-top:10px}
+.list-folder-toggle{padding:10px 12px!important;grid-template-columns:24px minmax(0,1fr) auto auto!important}
+.folder-name{min-width:0;font-size:15px;font-weight:850}
+.list-folder-content{padding:6px 8px 10px!important}
+.list-item-row{display:grid;grid-template-columns:minmax(0,1fr) 58px;gap:10px;align-items:stretch}
+.list-item{padding:12px 13px!important;min-width:0}
+.list-item strong,.preview-row span:last-child{overflow:hidden;text-overflow:ellipsis}
+#listDetail .eyebrow{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:900px){.list-browser{grid-template-columns:1fr!important}.list-tree{max-height:320px!important}}
+
+body.game-syllables .hex-frame{overflow:visible!important}
+body.game-syllables .syllable-result{display:flex!important;align-items:center!important;justify-content:center!important;width:88%!important;max-width:88%!important;max-height:48%!important;padding:0 .14em!important;line-height:.94!important;white-space:nowrap;overflow:visible!important;text-wrap:balance}
+body.game-syllables .hex-frame .hex-syllable{display:flex!important;align-items:center!important;justify-content:center!important;padding:6px 10px!important;text-align:center!important}

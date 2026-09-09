@@ -7,8 +7,8 @@ const AUDIO_DB = 'wortzeit_audio_v1';
 const STATE_DB = 'wortzeit_state_v1';
 const STATE_STORE = 'app';
 const STATE_KEY = 'state';
-const OFFLINE_CACHE = 'wortzeit-v0.8.5';
-const OFFLINE_SHELL = ['./','./index.html','./app.html','./behandler.html','./patient.html','./styles.css?v=0.8.5','./data.js?v=0.8.5','./app.js?v=0.8.5','./manifest-patient.webmanifest','./manifest-therapist.webmanifest'];
+const OFFLINE_CACHE = 'wortzeit-v0.8.6';
+const OFFLINE_SHELL = ['./','./index.html','./app.html','./behandler.html','./patient.html','./styles.css?v=0.8.6','./data.js?v=0.8.6','./app.js?v=0.8.6','./manifest-patient.webmanifest','./manifest-therapist.webmanifest'];
 const $ = (sel, root=document) => root.querySelector(sel);
 const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 const esc = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
@@ -159,6 +159,28 @@ function listFolders(L){
   const raw=Array.isArray(L?.folders)?L.folders:[L?.category];
   const out=[...new Set(raw.map(x=>String(x||'').trim()).filter(Boolean))];
   return out.length?out:['Eigene Listen'];
+}
+function folderDisplayName(folder){
+  const parts=String(folder||'').split('/').map(x=>x.trim()).filter(Boolean);
+  return parts.length?parts[parts.length-1]:(String(folder||'').trim()||'Ordner');
+}
+function folderDisplayList(folders){
+  return (folders||[]).map(folderDisplayName).join(' · ');
+}
+function rememberListBrowserUi(){
+  const search=$('#listSearch');
+  const treeCard=document.querySelector('.list-tree');
+  state.listBrowserUi={
+    ...(state.listBrowserUi||{}),
+    query:search?search.value:(state.listBrowserUi?.query||''),
+    scrollTop:treeCard?treeCard.scrollTop:(state.listBrowserUi?.scrollTop||0)
+  };
+}
+function restoreListBrowserUi(){
+  const search=$('#listSearch');
+  const treeCard=document.querySelector('.list-tree');
+  if(search && typeof state.listBrowserUi?.query==='string')search.value=state.listBrowserUi.query;
+  if(treeCard && Number.isFinite(+state.listBrowserUi?.scrollTop))treeCard.scrollTop=+state.listBrowserUi.scrollTop;
 }
 function normalizeListStorage(L){
   if(!L||typeof L!=='object')return L;
@@ -534,26 +556,26 @@ function renderLists(){
   </div>
   <input id="filePicker" type="file" accept=".rtf,.txt,.csv,.json,.odt,.ods" hidden multiple>
   <input id="folderPicker" type="file" webkitdirectory directory multiple hidden>`;
-  const renderTree=(q='')=>{
+  const renderTree=(q=(state.listBrowserUi?.query||''))=>{
     const norm=q.trim().toLocaleLowerCase('de');
     const filtered=lists.filter(x=>!norm || `${x.title} ${(x.aliases||[]).join(' ')} ${listFolders(x).join(' ')} ${listGameTags(x).map(t=>LIST_GAME_LABELS[t]).join(' ')}`.toLocaleLowerCase('de').includes(norm));
     const groups=new Map();filtered.forEach(L=>{for(const cat of listFolders(L)){if(!groups.has(cat))groups.set(cat,[]);groups.get(cat).push(L);}});groups.forEach(arr=>arr.sort((a,b)=>a.title.localeCompare(b.title,'de',{sensitivity:'base',numeric:true})));
     const entries=[...groups.entries()].sort((a,b)=>a[0].localeCompare(b[0],'de',{sensitivity:'base',numeric:true}));
     $('#listTree').innerHTML=entries.map(([cat,arr])=>{
       const open=!!norm||!!state.listFolderOpen?.[cat],unreviewed=arr.filter(listNeedsReview).length;
-      return `<div class="list-folder-group"><button class="list-folder-toggle ${open?'open':''}" data-folder-toggle="${esc(cat)}" data-folder-drop="${esc(cat)}" aria-expanded="${open?'true':'false'}"><span class="folder-arrow">${open?'▾':'▸'}</span><span class="folder-name">${esc(cat)}</span><span class="folder-count">${arr.length}</span>${unreviewed?`<span class="folder-review-count">${unreviewed} neu</span>`:''}</button>${open?`<div class="list-folder-content">${arr.map(L=>{const status=listReviewStatusLabel(L);return `<div class="list-item-row" draggable="${L.bundled?'false':'true'}" data-list-drag="${esc(L.id)}"><button class="list-item ${L.id===state.currentListId?'active':''}" data-list-id="${esc(L.id)}"><div class="list-item-title-line"><strong>${esc(L.title)}</strong>${status&&L.review?.status!=='checked'?`<span class="list-review-pill ${L.review.status}">${status}</span>`:''}</div><small>${L.items?.length||0} Einträge${L.kind==='pair'?' · A/B':''}</small><span class="list-game-mini">${listGameTags(L).filter(x=>x!=='session').slice(0,4).map(x=>esc(LIST_GAME_LABELS[x])).join(' · ')}</span></button><button class="mix-check ${activeIds.has(L.id)?'checked':''}" data-mix-list="${esc(L.id)}" aria-label="${activeIds.has(L.id)?'Aus Mischung entfernen':'Zur Mischung hinzufügen'}" title="${activeIds.has(L.id)?'In Mischübung aktiv':'Zur Mischübung hinzufügen'}">${activeIds.has(L.id)?'✓':'+'}</button></div>`}).join('')}</div>`:''}</div>`;
+      return `<div class="list-folder-group"><button class="list-folder-toggle ${open?'open':''}" data-folder-toggle="${esc(cat)}" data-folder-drop="${esc(cat)}" aria-expanded="${open?'true':'false'}"><span class="folder-arrow">${open?'▾':'▸'}</span><span class="folder-name" title="${esc(cat)}">${esc(folderDisplayName(cat))}</span><span class="folder-count">${arr.length}</span>${unreviewed?`<span class="folder-review-count">${unreviewed} neu</span>`:''}</button>${open?`<div class="list-folder-content">${arr.map(L=>{const status=listReviewStatusLabel(L);return `<div class="list-item-row" draggable="${L.bundled?'false':'true'}" data-list-drag="${esc(L.id)}"><button class="list-item ${L.id===state.currentListId?'active':''}" data-list-id="${esc(L.id)}"><div class="list-item-title-line"><strong>${esc(L.title)}</strong>${status&&L.review?.status!=='checked'?`<span class="list-review-pill ${L.review.status}">${status}</span>`:''}</div><small>${L.items?.length||0} Einträge${L.kind==='pair'?' · A/B':''}</small><span class="list-game-mini">${listGameTags(L).filter(x=>x!=='session').slice(0,4).map(x=>esc(LIST_GAME_LABELS[x])).join(' · ')}</span></button><button class="mix-check ${activeIds.has(L.id)?'checked':''}" data-mix-list="${esc(L.id)}" aria-label="${activeIds.has(L.id)?'Aus Mischung entfernen':'Zur Mischung hinzufügen'}" title="${activeIds.has(L.id)?'In Mischübung aktiv':'Zur Mischübung hinzufügen'}">${activeIds.has(L.id)?'✓':'+'}</button></div>`}).join('')}</div>`:''}</div>`;
     }).join('')||'<p class="muted">Keine Treffer.</p>';
     $$('[data-folder-toggle]').forEach(b=>b.onclick=()=>{const cat=b.dataset.folderToggle;state.listFolderOpen=state.listFolderOpen||{};state.listFolderOpen[cat]=!state.listFolderOpen[cat];saveState();renderTree($('#listSearch').value);});
-    $$('[data-list-id]').forEach(b=>b.onclick=()=>{setCurrentList(b.dataset.listId);renderLists();});
-    $$('[data-mix-list]').forEach(b=>b.onclick=()=>{toggleActiveList(b.dataset.mixList);renderLists();});
+    $$('[data-list-id]').forEach(b=>b.onclick=()=>{rememberListBrowserUi();setCurrentList(b.dataset.listId);renderLists();});
+    $$('[data-mix-list]').forEach(b=>b.onclick=()=>{rememberListBrowserUi();toggleActiveList(b.dataset.mixList);renderLists();});
     $$('[data-list-drag]').forEach(row=>{if(row.getAttribute('draggable')!=='true')return;row.ondragstart=e=>{e.dataTransfer.effectAllowed='copy';e.dataTransfer.setData('text/wortzeit-list-id',row.dataset.listDrag);};});
-    $$('[data-folder-drop]').forEach(folder=>{folder.ondragover=e=>{if(e.dataTransfer.types.includes('text/wortzeit-list-id')){e.preventDefault();folder.classList.add('drag-over');}};folder.ondragleave=()=>folder.classList.remove('drag-over');folder.ondrop=e=>{e.preventDefault();folder.classList.remove('drag-over');const id=e.dataTransfer.getData('text/wortzeit-list-id'),L=state.userLists.find(x=>x.id===id);if(!L)return toast('Integrierte Listen zuerst als Kopie bearbeiten.');if(addListToFolder(L,folder.dataset.folderDrop)){saveState();renderLists();toast(`„${L.title}“ zusätzlich „${folder.dataset.folderDrop}“ zugeordnet`);}};});
+    $$('[data-folder-drop]').forEach(folder=>{folder.ondragover=e=>{if(e.dataTransfer.types.includes('text/wortzeit-list-id')){e.preventDefault();folder.classList.add('drag-over');}};folder.ondragleave=()=>folder.classList.remove('drag-over');folder.ondrop=e=>{e.preventDefault();folder.classList.remove('drag-over');const id=e.dataTransfer.getData('text/wortzeit-list-id'),L=state.userLists.find(x=>x.id===id);if(!L)return toast('Integrierte Listen zuerst als Kopie bearbeiten.');if(addListToFolder(L,folder.dataset.folderDrop)){rememberListBrowserUi();saveState();renderLists();toast(`„${L.title}“ zusätzlich „${folderDisplayName(folder.dataset.folderDrop)}“ zugeordnet`);}};});
   };
   const renderDetail=()=>{
     const L=lists.find(x=>x.id===state.currentListId)||activeExplicit[0]||null;
     if(!L){$('#listDetail').innerHTML=`<div class="empty-list-detail"><div class="material-gate-icon">≡</div><h2>Liste auswählen</h2><p class="muted">Wähle links eine vorhandene Liste oder importiere einen Ordner. Die integrierten Standardwörter werden hier absichtlich nicht als normale Liste angezeigt.</p></div>`;return;}
     const preview=(L.items||[]).slice(0,160),tags=listGameTags(L),review=L.review;
-    $('#listDetail').innerHTML=`<div class="section-title"><div><div class="eyebrow">${esc(listFolders(L).join(' · '))}</div><h2>${esc(L.title)}</h2></div><div class="toolbar"><button class="primary-btn" data-route="session">Verwenden</button><button class="soft-btn" id="mixThis">${activeIds.has(L.id)?'✓ In Mischung':'＋ Zur Mischung'}</button><button class="soft-btn" id="recordBank">Aufnahmebank</button><button class="soft-btn" id="editList">${L.bundled?'Kopie bearbeiten':'Liste bearbeiten'}</button><button class="soft-btn" id="exportList">Export</button>${review&&listNeedsReview(L)?`<button class="review-done-btn" id="markReviewed">✓ Geprüft</button>`:''}${L.bundled?'':`<button class="danger-btn" id="deleteList">Löschen</button>`}</div></div>
+    $('#listDetail').innerHTML=`<div class="section-title"><div><div class="eyebrow" title="${esc(listFolders(L).join(' / '))}">${esc(folderDisplayList(listFolders(L)))}</div><h2>${esc(L.title)}</h2></div><div class="toolbar"><button class="primary-btn" data-route="session">Verwenden</button><button class="soft-btn" id="mixThis">${activeIds.has(L.id)?'✓ In Mischung':'＋ Zur Mischung'}</button><button class="soft-btn" id="recordBank">Aufnahmebank</button><button class="soft-btn" id="editList">${L.bundled?'Kopie bearbeiten':'Liste bearbeiten'}</button><button class="soft-btn" id="exportList">Export</button>${review&&listNeedsReview(L)?`<button class="review-done-btn" id="markReviewed">✓ Geprüft</button>`:''}${L.bundled?'':`<button class="danger-btn" id="deleteList">Löschen</button>`}</div></div>
       <p class="muted">${L.items?.length||0} Einträge · ${L.kind==='pair'?'A/B-Paare':L.kind==='choiceStory'?'Auswahlgeschichte':'Wort-/Textliste'}</p>
       ${review?`<div class="list-review-detail ${esc(review.status)}"><strong>${esc(listReviewStatusLabel(L)||'Import')}</strong><span>Erkennung: ${esc(confidenceLabel(review.confidence))}${review.separator?` · Trennung: ${esc(review.separator)}`:''}</span>${review.warnings?.length?`<span>${review.warnings.map(esc).join(' · ')}</span>`:''}</div>`:''}
       <div class="list-game-tags"><span class="muted small">Geeignet für:</span>${tags.map(t=>`<span class="list-game-tag">${esc(LIST_GAME_LABELS[t]||t)}</span>`).join('')}</div>
@@ -567,8 +589,10 @@ function renderLists(){
     $('#exportList').onclick=()=>downloadBlob(`${safeFilename(L.title)}.wortliste.json`,new Blob([JSON.stringify({format:'wortzeit-list',version:2,list:{...L,gameTags:listGameTags(L)}},null,2)],{type:'application/json'}));
     $('#deleteList')?.addEventListener('click',()=>{if(confirm(`Liste „${L.title}“ wirklich löschen?`)){state.userLists=state.userLists.filter(x=>x.id!==L.id);state.activeListIds=explicitListIds().filter(id=>id!==L.id);if(state.currentListId===L.id)state.currentListId=state.activeListIds[0]||null;saveState();session=null;game={};renderLists();}});
   };
-  renderTree();renderDetail();
-  $('#listSearch').oninput=e=>renderTree(e.target.value);
+  renderTree(state.listBrowserUi?.query||'');renderDetail();
+  restoreListBrowserUi();
+  document.querySelector('.list-tree')?.addEventListener('scroll',()=>{state.listBrowserUi={...(state.listBrowserUi||{}),scrollTop:document.querySelector('.list-tree')?.scrollTop||0};});
+  $('#listSearch').oninput=e=>{state.listBrowserUi={...(state.listBrowserUi||{}),query:e.target.value,scrollTop:0};renderTree(e.target.value);};
   $('#collapseAllFolders').onclick=()=>{state.listFolderOpen={};saveState();renderTree($('#listSearch').value);};
   $('#openPendingFolders')?.addEventListener('click',()=>{const next={};lists.filter(listNeedsReview).forEach(L=>listFolders(L).forEach(f=>next[f]=true));state.listFolderOpen=next;saveState();renderTree($('#listSearch').value);});
   $('#openPendingReview')?.addEventListener('click',()=>openImportReview('pending'));
@@ -577,8 +601,8 @@ function renderLists(){
   $('#newList').onclick=openNewListModal;
   $('#importFile').onclick=()=>$('#filePicker').click(); $('#filePicker').onchange=e=>importFiles([...e.target.files]);
   $('#importFolder').onclick=()=>{const picker=$('#folderPicker');if('webkitdirectory' in picker){picker.click();}else{toast('Dieser Browser kann keinen ganzen Ordner auswählen. Bitte mehrere Dateien markieren.');$('#filePicker').click();}}; $('#folderPicker').onchange=e=>importFiles([...e.target.files],true);
-  $$('[data-recent-list]').forEach(b=>b.onclick=()=>{setCurrentList(b.dataset.recentList);renderLists();});
-  $$('[data-remove-active]').forEach(b=>b.onclick=()=>{toggleActiveList(b.dataset.removeActive);renderLists();});
+  $$('[data-recent-list]').forEach(b=>b.onclick=()=>{rememberListBrowserUi();setCurrentList(b.dataset.recentList);renderLists();});
+  $$('[data-remove-active]').forEach(b=>b.onclick=()=>{rememberListBrowserUi();toggleActiveList(b.dataset.removeActive);renderLists();});
   bindPlanBar();
 }
 function safeFilename(s){return String(s).replace(/[\\/:*?"<>|]+/g,'_').trim()||'Datei';}
@@ -1155,13 +1179,32 @@ function fitSyllableBoard(){
   const buttons=[...wrap.querySelectorAll('.hex-syllable')];
   const bw=Math.max(74,...buttons.map(b=>Math.min(170,Math.max(74,b.getBoundingClientRect().width||0))));
   const bh=Math.max(48,...buttons.map(b=>Math.min(80,Math.max(48,b.getBoundingClientRect().height||0))));
-  const reserveX=bw+14, reserveY=bh+14;
+  const reserveX=bw+18, reserveY=bh+18;
   const ratio=1.154700538;
   let w=Math.min(560,Math.max(120,r.width-2*reserveX),Math.max(120,(r.height-2*reserveY)*ratio));
   if(!Number.isFinite(w))return;
   w=Math.max(150,w);
   const h=w/ratio;
   frame.style.width=`${w}px`;frame.style.height=`${h}px`;
+  const result=wrap.querySelector('.syllable-result');
+  if(result){
+    const maxWidth=Math.max(120,result.clientWidth||frame.clientWidth*0.9||0);
+    let size=Math.min(76,parseFloat(getComputedStyle(result).fontSize)||52);
+    result.style.whiteSpace='nowrap';
+    result.style.fontSize=`${size}px`;
+    while(size>20 && result.scrollWidth>maxWidth){
+      size-=1;
+      result.style.fontSize=`${size}px`;
+    }
+    if(result.scrollWidth>maxWidth){
+      result.style.whiteSpace='normal';
+      result.style.overflowWrap='anywhere';
+      while(size>18 && (result.scrollWidth>maxWidth || result.scrollHeight>frame.clientHeight*0.46)){
+        size-=1;
+        result.style.fontSize=`${size}px`;
+      }
+    }
+  }
 }
 function fitSessionText(){
   const wrap=document.querySelector('.session-word-wrap'), el=document.querySelector('.session-word');
@@ -1539,7 +1582,7 @@ function clickDefaultAction(){
 }
 
 // ---------- Service worker ----------
-if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.8.5',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
+if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.8.6',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
 
 // ---------- Global events/init ----------
 window.__WZ_BOOT_PHASE='ui-bind';
