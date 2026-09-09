@@ -7,8 +7,8 @@ const AUDIO_DB = 'wortzeit_audio_v1';
 const STATE_DB = 'wortzeit_state_v1';
 const STATE_STORE = 'app';
 const STATE_KEY = 'state';
-const OFFLINE_CACHE = 'wortzeit-v0.8.6';
-const OFFLINE_SHELL = ['./','./index.html','./app.html','./behandler.html','./patient.html','./styles.css?v=0.8.6','./data.js?v=0.8.6','./app.js?v=0.8.6','./manifest-patient.webmanifest','./manifest-therapist.webmanifest'];
+const OFFLINE_CACHE = 'wortzeit-v0.8.7';
+const OFFLINE_SHELL = ['./','./index.html','./app.html','./behandler.html','./patient.html','./styles.css?v=0.8.7','./data.js?v=0.8.7','./app.js?v=0.8.7','./manifest-patient.webmanifest','./manifest-therapist.webmanifest'];
 const $ = (sel, root=document) => root.querySelector(sel);
 const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 const esc = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
@@ -1180,16 +1180,16 @@ function fitSyllableBoard(){
   const bw=Math.max(74,...buttons.map(b=>Math.min(170,Math.max(74,b.getBoundingClientRect().width||0))));
   const bh=Math.max(48,...buttons.map(b=>Math.min(80,Math.max(48,b.getBoundingClientRect().height||0))));
   const reserveX=bw+18, reserveY=bh+18;
-  const ratio=1.154700538;
-  let w=Math.min(560,Math.max(120,r.width-2*reserveX),Math.max(120,(r.height-2*reserveY)*ratio));
+  const ratio=1.42;
+  let w=Math.min(720,Math.max(180,r.width-2*reserveX),Math.max(180,(r.height-2*reserveY)*ratio));
   if(!Number.isFinite(w))return;
   w=Math.max(150,w);
   const h=w/ratio;
   frame.style.width=`${w}px`;frame.style.height=`${h}px`;
   const result=wrap.querySelector('.syllable-result');
   if(result){
-    const maxWidth=Math.max(120,result.clientWidth||frame.clientWidth*0.9||0);
-    let size=Math.min(76,parseFloat(getComputedStyle(result).fontSize)||52);
+    const maxWidth=Math.max(140,frame.clientWidth*0.9||result.clientWidth||0);
+    let size=Math.min(80,parseFloat(getComputedStyle(result).fontSize)||52);
     result.style.whiteSpace='nowrap';
     result.style.fontSize=`${size}px`;
     while(size>20 && result.scrollWidth>maxWidth){
@@ -1267,7 +1267,7 @@ function evaluateSyllables(g){
 function renderSyllables(){
   if(!game.syllables||game.syllables.materialKey!==activeMaterialKey())buildSyllableRound();const g=game.syllables;
   const controls=`<button class="soft-btn" id="syllableReset">Reset</button><button class="soft-btn" id="syllableNew">Mischen</button>`;
-  const vertices=[[25,0,-50,-100],[75,0,-50,-100],[100,50,0,-50],[75,100,-50,0],[25,100,-50,0],[0,50,-100,-50]];
+  const vertices=[[20,0,-50,-100],[80,0,-50,-100],[100,50,0,-50],[80,100,-50,0],[20,100,-50,0],[0,50,-100,-50]];
   $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="game-shell">${gameHeader('Silben','Wähle Silben an den sechs Ecken und setze sie oben zusammen. Die sechs Silben bilden immer vollständige Wörter.',controls)}<div class="game-board"><div class="syllable-workspace" aria-label="Arbeitsbereich" id="syllableWorkspace">${g.built.length?g.built.map((sy,i)=>`<button class="syllable-piece" draggable="true" data-built="${i}" title="Antippen zum Entfernen">${esc(String(sy).toLocaleUpperCase('de'))}</button>`).join(''):'<span class="muted">SILBEN HIER ZUSAMMENSETZEN</span>'}</div><div class="hex-wrap"><div class="hex-frame"><div class="hex-shape"><div class="syllable-result ${g.hitWord?'recognized':''}">${esc((g.hitWord||(g.built.length?g.built.join(''):'SILBEN')).toLocaleUpperCase('de'))}</div></div>${g.options.map((sy,i)=>{const v=vertices[i];return `<button class="hex-syllable" style="--hx:${v[0]}%;--hy:${v[1]}%;--tx:${v[2]}%;--ty:${v[3]}%" data-syllable="${i}" draggable="true">${esc(String(sy).toLocaleUpperCase('de'))}</button>`}).join('')}</div></div></div></div>`;
   bindPlanBar();bindGameChrome();requestAnimationFrame(fitSyllableBoard);
   const addOption=i=>{const sy=g.options[i];if(!sy)return;g.built.push(sy);evaluateSyllables(g);renderSyllables();};
@@ -1582,7 +1582,7 @@ function clickDefaultAction(){
 }
 
 // ---------- Service worker ----------
-if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.8.6',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
+if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.8.7',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
 
 // ---------- Global events/init ----------
 window.__WZ_BOOT_PHASE='ui-bind';

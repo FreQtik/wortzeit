@@ -1012,7 +1012,7 @@ body.session-mode .session-word:not(.multi){white-space:nowrap!important;max-wid
 @media(max-width:700px){.duplicate-row{grid-template-columns:30px minmax(0,1fr)}.duplicate-row>span:last-child{grid-column:2}.duplicate-actions{align-items:stretch;flex-direction:column}.duplicate-actions>span{margin:0}.duplicate-actions button{width:100%}}
 
 
-/* v0.8.6 layout and readability refinements */
+/* v0.8.7 layout and readability refinements */
 .list-browser{grid-template-columns:minmax(340px,430px) minmax(0,1fr)!important;align-items:start!important}
 .list-tree{max-height:calc(100vh - 205px)!important;padding:14px!important;scrollbar-gutter:stable both-edges}
 #listTree.section{margin-top:10px}
@@ -1028,3 +1028,24 @@ body.session-mode .session-word:not(.multi){white-space:nowrap!important;max-wid
 body.game-syllables .hex-frame{overflow:visible!important}
 body.game-syllables .syllable-result{display:flex!important;align-items:center!important;justify-content:center!important;width:88%!important;max-width:88%!important;max-height:48%!important;padding:0 .14em!important;line-height:.94!important;white-space:nowrap;overflow:visible!important;text-wrap:balance}
 body.game-syllables .hex-frame .hex-syllable{display:flex!important;align-items:center!important;justify-content:center!important;padding:6px 10px!important;text-align:center!important}
+
+
+/* v0.8.7 syllable board widening */
+body.game-syllables .hex-wrap{padding:clamp(26px,4vh,48px) clamp(96px,13vw,190px) clamp(20px,3vh,34px)!important;}
+body.game-syllables .hex-frame{width:min(74vw,720px)!important;aspect-ratio:1.42 / 1!important;max-width:100%!important;}
+body.game-syllables .hex-frame .hex-shape{clip-path:polygon(18% 6%,82% 6%,100% 50%,82% 94%,18% 94%,0 50%)!important;}
+body.game-syllables .hex-frame .hex-syllable{min-width:clamp(96px,11vw,156px)!important;max-width:min(22vw,180px)!important;min-height:clamp(50px,7.5vh,74px)!important;padding:6px 16px!important;white-space:nowrap!important;line-height:1!important;}
+body.game-syllables .syllable-result{width:90%!important;max-width:90%!important;font-size:clamp(34px,4.5vw,82px)!important;line-height:.95!important;padding:0 .2em!important;}
+body.game-syllables .syllable-workspace{max-width:1100px!important;gap:12px!important;justify-content:center!important;padding-inline:18px!important;}
+body.game-syllables .syllable-piece{min-width:clamp(86px,10vw,150px)!important;padding:10px 18px!important;white-space:nowrap!important;line-height:1!important;}
+@media (max-width: 900px){
+  body.game-syllables .hex-wrap{padding:18px 74px 14px!important;}
+  body.game-syllables .hex-frame{width:min(88vw,560px)!important;aspect-ratio:1.28 / 1!important;}
+  body.game-syllables .hex-frame .hex-syllable{min-width:clamp(78px,18vw,124px)!important;max-width:30vw!important;padding:5px 10px!important;font-size:clamp(18px,4.5vw,28px)!important;}
+  body.game-syllables .syllable-result{font-size:clamp(24px,6.5vw,48px)!important;}
+}
+@media (orientation: landscape) and (max-height: 700px){
+  body.game-syllables .hex-wrap{padding:12px 72px 8px!important;}
+  body.game-syllables .hex-frame{width:min(60vw,620px)!important;}
+  body.game-syllables .syllable-result{font-size:clamp(22px,6vh,46px)!important;}
+}
