@@ -7,8 +7,8 @@ const AUDIO_DB = 'wortzeit_audio_v1';
 const STATE_DB = 'wortzeit_state_v1';
 const STATE_STORE = 'app';
 const STATE_KEY = 'state';
-const OFFLINE_CACHE = 'wortzeit-v0.8.3';
-const OFFLINE_SHELL = ['./','./index.html','./app.html','./behandler.html','./patient.html','./styles.css?v=0.8.3','./data.js?v=0.8.3','./app.js?v=0.8.3','./manifest-patient.webmanifest','./manifest-therapist.webmanifest'];
+const OFFLINE_CACHE = 'wortzeit-v0.8.4';
+const OFFLINE_SHELL = ['./','./index.html','./app.html','./behandler.html','./patient.html','./styles.css?v=0.8.4','./data.js?v=0.8.4','./app.js?v=0.8.4','./manifest-patient.webmanifest','./manifest-therapist.webmanifest'];
 const $ = (sel, root=document) => root.querySelector(sel);
 const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 const esc = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
@@ -36,6 +36,7 @@ const defaultList = {
 
 const DEFAULT_STATE = {
   version:4,
+  storageUpdatedAt:0,
   currentListId:null,
   userLists:[], patients:[], plans:[], storyTitleOverrides:{}, activeListIds:[], recentListIds:[],
   importReviewBatches:[], lastImportBatchId:null, listFolderOpen:{}, reviewMigrationVersion:0, duplicateIgnoreGroups:[],
@@ -43,10 +44,12 @@ const DEFAULT_STATE = {
   stats:{sortScore:0,storyScore:0,letterScore:0}
 };
 
+let stateStorageMode='idb';
+let stateStorageWarning='';
 let state = await loadState();
 normalizeAllUserLists(state);
-migrateImportReviewState(state);
-saveState();
+const importReviewChanged=migrateImportReviewState(state);
+if(importReviewChanged) saveState();
 let route = 'home';
 let session = null;
 let game = {};
@@ -58,7 +61,21 @@ let navDepth = 0;
 let navMaxDepth = 0;
 
 function stateDb(){
-  return new Promise((resolve,reject)=>{const req=indexedDB.open(STATE_DB,1);req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains(STATE_STORE))req.result.createObjectStore(STATE_STORE);};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});
+  return new Promise((resolve,reject)=>{
+    let settled=false;
+    const fail=err=>{if(settled)return;settled=true;reject(err instanceof Error?err:new Error(String(err||'IndexedDB nicht verfügbar')));};
+    let req;
+    try{req=indexedDB.open(STATE_DB,1);}catch(err){fail(err);return;}
+    req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains(STATE_STORE))req.result.createObjectStore(STATE_STORE);};
+    req.onsuccess=()=>{if(settled){try{req.result.close();}catch{}return;}settled=true;resolve(req.result);};
+    req.onerror=()=>fail(req.error||new Error('IndexedDB konnte nicht geöffnet werden'));
+    req.onblocked=()=>fail(new Error('IndexedDB ist durch den Browser blockiert'));
+  });
+}
+function storageTimeout(promise,ms,label='Datenspeicher'){
+  let timer;
+  const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(`${label} antwortet nicht`)),ms);});
+  return Promise.race([promise,timeout]).finally(()=>clearTimeout(timer));
 }
 async function idbStateGet(){const db=await stateDb();return await new Promise((res,rej)=>{const tx=db.transaction(STATE_STORE,'readonly'),r=tx.objectStore(STATE_STORE).get(STATE_KEY);r.onsuccess=()=>res(r.result||null);r.onerror=()=>rej(r.error);});}
 async function idbStateSet(value){const db=await stateDb();return await new Promise((res,rej)=>{const tx=db.transaction(STATE_STORE,'readwrite');tx.objectStore(STATE_STORE).put(value,STATE_KEY);tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);});}
@@ -83,14 +100,20 @@ function normalizeLoadedState(parsed){
   };
 }
 async function loadState(){
-  let parsed=null;
+  let localParsed=null,idbParsed=null,idbOk=false;
+  try{const raw=localStorage.getItem(STORAGE_KEY);if(raw)localParsed=JSON.parse(raw);}catch(e){console.warn('Local state mirror load failed',e);}
   if(typeof indexedDB!=='undefined'){
-    try{parsed=await idbStateGet();}catch(e){console.warn('IndexedDB state load failed',e);}
+    try{idbParsed=await storageTimeout(idbStateGet(),1800,'Browser-Datenspeicher');idbOk=true;}
+    catch(e){console.warn('IndexedDB state load failed',e);stateStorageMode='local';stateStorageWarning=e?.message||'Browser-Datenspeicher eingeschränkt';}
+  }else{
+    stateStorageMode='local';stateStorageWarning='Dieser Browser stellt IndexedDB nicht bereit';
   }
-  if(!parsed){
-    try{const raw=localStorage.getItem(STORAGE_KEY);if(raw)parsed=JSON.parse(raw);}catch(e){console.warn('Legacy state load failed',e);}
-    if(parsed&&typeof indexedDB!=='undefined'){try{await idbStateSet(parsed);}catch(e){console.warn('State migration to IndexedDB failed',e);}}
-  }
+  let parsed=null;
+  if(idbOk){
+    const idbStamp=Number(idbParsed?.storageUpdatedAt)||0,localStamp=Number(localParsed?.storageUpdatedAt)||0;
+    parsed=(localParsed&&localStamp>idbStamp)?localParsed:(idbParsed||localParsed);
+    stateStorageMode='idb';
+  }else parsed=localParsed;
   return normalizeLoadedState(parsed);
 }
 let stateSaveTimer=null,stateSaveChain=Promise.resolve(),pendingStateSnapshot=null;
@@ -98,12 +121,19 @@ function writeLegacyFallback(snapshot){
   try{localStorage.setItem(STORAGE_KEY,JSON.stringify(snapshot));return true;}catch(e){console.warn('localStorage fallback failed',e);return false;}
 }
 function persistStateSnapshot(snapshot){
-  if(typeof indexedDB==='undefined'){writeLegacyFallback(snapshot);return Promise.resolve();}
-  return idbStateSet(snapshot).then(()=>{
-    try{localStorage.setItem(STORAGE_KEY,JSON.stringify({version:snapshot.version,settings:snapshot.settings,currentListId:snapshot.currentListId,activeListIds:snapshot.activeListIds,recentListIds:snapshot.recentListIds}));}catch{}
-  }).catch(e=>{console.warn('IndexedDB state save failed',e);writeLegacyFallback(snapshot);});
+  if(stateStorageMode!=='idb'||typeof indexedDB==='undefined'){
+    writeLegacyFallback(snapshot);return Promise.resolve();
+  }
+  return storageTimeout(idbStateSet(snapshot),2200,'Browser-Datenspeicher').then(()=>{
+    writeLegacyFallback(snapshot);
+  }).catch(e=>{
+    console.warn('IndexedDB state save failed',e);
+    stateStorageMode='local';stateStorageWarning=e?.message||'Browser-Datenspeicher eingeschränkt';
+    writeLegacyFallback(snapshot);
+  });
 }
 function saveState(){
+  state.storageUpdatedAt=Date.now();
   pendingStateSnapshot=cloneData(state);
   clearTimeout(stateSaveTimer);
   stateSaveTimer=setTimeout(()=>{const snap=pendingStateSnapshot;pendingStateSnapshot=null;stateSaveChain=stateSaveChain.then(()=>persistStateSnapshot(snap));},40);
@@ -1497,7 +1527,7 @@ function clickDefaultAction(){
 }
 
 // ---------- Service worker ----------
-if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.8.3',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
+if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.8.4',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
 
 // ---------- Global events/init ----------
 try{history.replaceState({wz:true,route:'home',depth:0},'',location.href);}catch{}
@@ -1509,4 +1539,9 @@ window.addEventListener('resize',()=>{if(route==='memory'&&game.memoryStage==='p
 
 if(patientMode)document.body.classList.add('patient-mode');
 updateHeader();render();syncNavigationButtons();
-})();
+if(stateStorageMode==='local'&&stateStorageWarning){setTimeout(()=>toast('WortZeit läuft im sicheren Ersatzspeicher dieses Browsers. Bitte später ein Datenpaket sichern.'),500);}
+})().catch(err=>{
+  console.error('WortZeit boot failed',err);
+  const view=document.getElementById('view');
+  if(view)view.innerHTML=`<section class="page"><div class="card" style="max-width:760px;margin:40px auto"><div class="eyebrow">WortZeit</div><h1>WortZeit konnte nicht vollständig starten</h1><p class="help-text">Deine Daten wurden nicht gelöscht. Bitte lade die Seite einmal neu. Wenn das wieder passiert, öffne WortZeit in einem normalen Browserfenster und nicht im Privatmodus.</p><div class="form-row"><button class="primary-btn" onclick="location.reload()">Neu laden</button><a class="soft-btn" href="./behandler.html">Zur Anmeldung</a></div></div></section>`;
+});
