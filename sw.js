@@ -1,7 +1,7 @@
-const CACHE='wortzeit-v0.8.7';
+const CACHE='wortzeit-v0.8.8';
 const SHELL=[
   './','./index.html','./app.html','./behandler.html','./patient.html',
-  './styles.css?v=0.8.7','./data.js?v=0.8.7','./app.js?v=0.8.7',
+  './styles.css?v=0.8.8','./data.js?v=0.8.8','./app.js?v=0.8.8',
   './manifest-patient.webmanifest','./manifest-therapist.webmanifest'
 ];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting())));
