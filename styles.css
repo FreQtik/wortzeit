@@ -1,13 +1,13 @@
 :root{
   --bg:#eaf1f3;--surface:#ffffff;--surface-2:#f5f8f9;--ink:#17242a;--muted:#607077;
-  --accent:#416c76;--on-accent:#ffffff;--accent-2:#d9e8eb;--focus:#bb5c3c;--success:#4f7358;--on-success:#ffffff;--danger:#9a493f;
+  --accent:#416c76;--on-accent:#ffffff;--accent-2:#d9e8eb;--focus:#bb5c3c;--on-focus:#ffffff;--success:#4f7358;--on-success:#ffffff;--danger:#9a493f;
   --line:#d6e0e3;--shadow:0 14px 38px rgba(31,54,62,.12);--radius:18px;--radius-sm:12px;
   --session-bg:#e8f0f2;--session-ink:#142328;
   font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
   color-scheme:light;
 }
 body[data-theme="dark"]{--bg:#10171a;--surface:#182126;--surface-2:#202c31;--ink:#eef4f4;--muted:#b9c6ca;--accent:#92c7d1;--on-accent:#0d171a;--accent-2:#263b40;--line:#415158;--shadow:0 16px 38px rgba(0,0,0,.28);--session-bg:#11191c;--session-ink:#f4f7f7;color-scheme:dark}
-body[data-theme="contrast"]{--bg:#050505;--surface:#0d0d0d;--surface-2:#17130a;--ink:#ffd966;--muted:#f0bc63;--accent:#ffb21c;--on-accent:#140d00;--accent-2:#2d2107;--focus:#ff6f1a;--success:#7edb82;--on-success:#071108;--danger:#ff8f7d;--line:#6d531c;--session-bg:#000000;--session-ink:#ffd966;color-scheme:dark}
+body[data-theme="contrast"]{--bg:#050505;--surface:#0d0d0d;--surface-2:#17130a;--ink:#ffd966;--muted:#f0bc63;--accent:#ffb21c;--on-accent:#140d00;--accent-2:#2d2107;--focus:#ff6f1a;--on-focus:#190900;--success:#7edb82;--on-success:#071108;--danger:#ff8f7d;--line:#6d531c;--session-bg:#000000;--session-ink:#ffd966;color-scheme:dark}
 body[data-theme="light"]{--bg:#f7f9fa;--surface:#fff;--surface-2:#f1f4f6;--ink:#182126;--muted:#66747b;--accent:#46666f;--on-accent:#ffffff;--accent-2:#e8eff1;--line:#dce3e6;--session-bg:#fbfdfe;--session-ink:#172126}
 body[data-theme="warm"]{--bg:#f1ede4;--surface:#fffdf8;--surface-2:#f7f1e5;--ink:#2a2924;--muted:#716d61;--accent:#7a6853;--on-accent:#ffffff;--accent-2:#ece2d2;--line:#ded4c5;--session-bg:#f8f2e8;--session-ink:#2a2822}
 *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--ink)}body{min-height:100vh}button,input,select,textarea{font:inherit;color:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{outline:3px solid color-mix(in srgb,var(--focus) 62%,transparent);outline-offset:2px}
@@ -1012,7 +1012,7 @@ body.session-mode .session-word:not(.multi){white-space:nowrap!important;max-wid
 @media(max-width:700px){.duplicate-row{grid-template-columns:30px minmax(0,1fr)}.duplicate-row>span:last-child{grid-column:2}.duplicate-actions{align-items:stretch;flex-direction:column}.duplicate-actions>span{margin:0}.duplicate-actions button{width:100%}}
 
 
-/* v0.8.8 layout and readability refinements */
+/* v0.8.9 layout and readability refinements */
 .list-browser{grid-template-columns:minmax(340px,430px) minmax(0,1fr)!important;align-items:start!important}
 .list-tree{max-height:calc(100vh - 205px)!important;padding:14px!important;scrollbar-gutter:stable both-edges}
 #listTree.section{margin-top:10px}
@@ -1030,7 +1030,7 @@ body.game-syllables .syllable-result{display:flex!important;align-items:center!i
 body.game-syllables .hex-frame .hex-syllable{display:flex!important;align-items:center!important;justify-content:center!important;padding:6px 10px!important;text-align:center!important}
 
 
-/* v0.8.8 syllable board widening */
+/* v0.8.9 syllable board widening */
 body.game-syllables .hex-wrap{padding:clamp(26px,4vh,48px) clamp(96px,13vw,190px) clamp(20px,3vh,34px)!important;}
 body.game-syllables .hex-frame{width:min(74vw,720px)!important;aspect-ratio:1.42 / 1!important;max-width:100%!important;}
 body.game-syllables .hex-frame .hex-shape{clip-path:polygon(18% 6%,82% 6%,100% 50%,82% 94%,18% 94%,0 50%)!important;}
@@ -1051,7 +1051,7 @@ body.game-syllables .syllable-piece{min-width:clamp(86px,10vw,150px)!important;p
 }
 
 
-/* v0.8.8 therapy-flow polish */
+/* v0.8.9 therapy-flow polish */
 @keyframes storySuccessFade{0%,62%{opacity:1;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-50%) scale(.985)}}
 .game-floating-message.story-success-notice{animation:storySuccessFade 2.65s ease forwards;pointer-events:none}
 body.game-letters .letter-assist{width:min(900px,94%);margin:clamp(16px,3vh,28px) auto 0;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;background:color-mix(in srgb,var(--surface) 88%,var(--accent-2))}
@@ -1061,3 +1061,33 @@ body.game-letters .letter-assist-actions button{min-height:48px}
 body.game-letters .letter-slot.correct-slot{background:color-mix(in srgb,var(--success) 10%,var(--surface));border-bottom-color:var(--success)}
 body.game-letters .info-banner{background:color-mix(in srgb,var(--accent) 10%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 30%,var(--line));color:var(--ink);border-radius:14px;padding:12px 16px}
 @media(max-width:720px){body.game-letters .letter-assist{align-items:stretch}body.game-letters .letter-assist-actions{display:grid;grid-template-columns:1fr;flex:1 1 100%}body.game-letters .letter-assist-actions button{width:100%}}
+
+
+/* v0.8.9 – prominent syllable controls and split-sentence choice stories */
+body.game-syllables .syllable-control-btn{
+  min-height:56px;
+  min-width:132px;
+  padding:0 22px;
+  border-radius:15px;
+  border:1px solid transparent;
+  font-size:18px;
+  font-weight:900;
+  letter-spacing:.01em;
+  box-shadow:0 5px 16px rgba(31,54,62,.11);
+}
+body.game-syllables .syllable-reset-btn{
+  background:var(--focus);
+  border-color:var(--focus);
+  color:var(--on-focus,#fff);
+}
+body.game-syllables .syllable-mix-btn{
+  background:var(--success);
+  border-color:var(--success);
+  color:var(--on-success);
+}
+body.game-syllables .syllable-control-btn:hover{filter:brightness(1.04)}
+body.game-syllables .syllable-control-btn:active{transform:translateY(1px)}
+.choice-prompt{white-space:pre-wrap}
+@media(max-width:700px){
+  body.game-syllables .syllable-control-btn{min-width:112px;min-height:52px;padding:0 16px;font-size:17px}
+}

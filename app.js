@@ -7,8 +7,8 @@ const AUDIO_DB = 'wortzeit_audio_v1';
 const STATE_DB = 'wortzeit_state_v1';
 const STATE_STORE = 'app';
 const STATE_KEY = 'state';
-const OFFLINE_CACHE = 'wortzeit-v0.8.8';
-const OFFLINE_SHELL = ['./','./index.html','./app.html','./behandler.html','./patient.html','./styles.css?v=0.8.8','./data.js?v=0.8.8','./app.js?v=0.8.8','./manifest-patient.webmanifest','./manifest-therapist.webmanifest'];
+const OFFLINE_CACHE = 'wortzeit-v0.8.9';
+const OFFLINE_SHELL = ['./','./index.html','./app.html','./behandler.html','./patient.html','./styles.css?v=0.8.9','./data.js?v=0.8.9','./app.js?v=0.8.9','./manifest-patient.webmanifest','./manifest-therapist.webmanifest'];
 const $ = (sel, root=document) => root.querySelector(sel);
 const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 const esc = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
@@ -1296,7 +1296,7 @@ function evaluateSyllables(g){
 }
 function renderSyllables(){
   if(!game.syllables||game.syllables.materialKey!==activeMaterialKey())buildSyllableRound();const g=game.syllables;
-  const controls=`<button class="soft-btn" id="syllableReset">Reset</button><button class="soft-btn" id="syllableNew">Mischen</button>`;
+  const controls=`<button class="syllable-control-btn syllable-reset-btn" id="syllableReset">↺ Reset</button><button class="syllable-control-btn syllable-mix-btn" id="syllableNew">⤨ Mischen</button>`;
   const vertices=[[20,0,-50,-100],[80,0,-50,-100],[100,50,0,-50],[80,100,-50,0],[20,100,-50,0],[0,50,-100,-50]];
   $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="game-shell">${gameHeader('Silben','Wähle Silben an den sechs Ecken und setze sie oben zusammen. Die sechs Silben bilden immer vollständige Wörter.',controls)}<div class="game-board"><div class="syllable-workspace" aria-label="Arbeitsbereich" id="syllableWorkspace">${g.built.length?g.built.map((sy,i)=>`<button class="syllable-piece" draggable="true" data-built="${i}" title="Antippen zum Entfernen">${esc(String(sy).toLocaleUpperCase('de'))}</button>`).join(''):'<span class="muted">SILBEN HIER ZUSAMMENSETZEN</span>'}</div><div class="hex-wrap"><div class="hex-frame"><div class="hex-shape"><div class="syllable-result ${g.hitWord?'recognized':''}">${esc((g.hitWord||(g.built.length?g.built.join(''):'SILBEN')).toLocaleUpperCase('de'))}</div></div>${g.options.map((sy,i)=>{const v=vertices[i];return `<button class="hex-syllable" style="--hx:${v[0]}%;--hy:${v[1]}%;--tx:${v[2]}%;--ty:${v[3]}%" data-syllable="${i}" draggable="true">${esc(String(sy).toLocaleUpperCase('de'))}</button>`}).join('')}</div></div></div></div>`;
   bindPlanBar();bindGameChrome();requestAnimationFrame(fitSyllableBoard);
@@ -1309,9 +1309,22 @@ function renderSyllables(){
 
 // ---------- Choice stories ----------
 let _choiceStoriesCache=null;
+function normalizeChoiceStoryStep(step){
+  const prompt=String(step?.prompt||'').trim();
+  const suffix=String(step?.suffix||'').trim();
+  const options=(step?.options||[]).map(x=>String(x||'').trim()).filter(Boolean);
+  if(!prompt||options.length<2||options.length>4)return null;
+  return {prompt,suffix,options};
+}
 function listToChoiceStory(L){
-  if(!L||!Array.isArray(L.items)||L.items.length<5||L.items.length%5!==0)return null;
-  const steps=[];for(let i=0;i<L.items.length;i+=5){const prompt=String(L.items[i]?.text||'').trim(),options=L.items.slice(i+1,i+5).map(x=>String(x?.text||'').trim()).filter(Boolean);if(!prompt||options.length!==4)return null;steps.push({prompt,options});}
+  if(!L)return null;
+  if(Array.isArray(L.choiceStorySteps)&&L.choiceStorySteps.length){
+    const steps=L.choiceStorySteps.map(normalizeChoiceStoryStep);
+    if(steps.some(x=>!x))return null;
+    return {id:`list:${L.id}`,title:L.title,source:'Eigene oder vorbereitete Liste',steps};
+  }
+  if(!Array.isArray(L.items)||L.items.length<5||L.items.length%5!==0)return null;
+  const steps=[];for(let i=0;i<L.items.length;i+=5){const prompt=String(L.items[i]?.text||'').trim(),options=L.items.slice(i+1,i+5).map(x=>String(x?.text||'').trim()).filter(Boolean);if(!prompt||options.length!==4)return null;steps.push({prompt,suffix:'',options});}
   return {id:`list:${L.id}`,title:L.title,source:'Eigene oder vorbereitete Liste',steps};
 }
 function buildChoiceStories(){
@@ -1356,13 +1369,14 @@ function buildChoiceStories(){
   }
   return stories;
 }
-function sentenceFromChoice(step,choice){const a=String(step.prompt||'').trim(),b=String(choice||'').trim();return `${a}${a&&b?' ':''}${b}`.replace(/\s+([,.!?;:])/g,'$1').replace(/\.\./g,'.');}
+function sentenceFromChoice(step,choice){const a=String(step.prompt||'').trim(),b=String(choice||'').trim(),c=String(step.suffix||'').trim();return [a,b,c].filter(Boolean).join(' ').replace(/\s+([,.!?;:])/g,'$1').replace(/\.\./g,'.');}
+function choiceStoryPromptText(step){const a=String(step?.prompt||'').trim(),c=String(step?.suffix||'').trim();return c?`${a}  ___  ${c}`:a;}
 function initChoiceStory(storyId){const stories=buildChoiceStories();const story=stories.find(x=>x.id===storyId)||stories[0];game.choiceStory={storyId:story.id,index:0,currentChoice:null,chosen:[],reading:false,readPage:0};}
 function renderChoiceStory(){
   const stories=buildChoiceStories();if(!game.choiceStory)initChoiceStory(stories[0]?.id);const g=game.choiceStory,story=stories.find(x=>x.id===g.storyId)||stories[0];if(!story)return;
   if(g.reading)return renderChoiceStoryReading(story,g);
   const step=story.steps[g.index];if(!step)return;
-  const sentence=g.currentChoice==null?step.prompt:sentenceFromChoice(step,step.options[g.currentChoice]);
+  const sentence=g.currentChoice==null?choiceStoryPromptText(step):sentenceFromChoice(step,step.options[g.currentChoice]);
   const controls=`<select id="choiceStorySelect" aria-label="Geschichte">${stories.map(x=>`<option value="${esc(x.id)}">${esc(x.title)}</option>`).join('')}</select><button class="soft-btn" id="choiceReset">↺ Anfang</button>`;
   const center=`<button class="primary-btn choice-next-top" data-game-primary id="choiceNext" ${g.currentChoice==null?'disabled':''}>${g.index>=story.steps.length-1?'Geschichte lesen':'Weiter →'}</button>`;
   $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="game-shell">${gameHeader('Geschichte bauen',`${esc(story.title)} · Es gibt kein Richtig oder Falsch.`,controls,center)}<div class="game-board"><div class="choice-progress">${g.index+1} / ${story.steps.length}</div><div class="choice-stage"><div class="choice-prompt ${g.currentChoice!=null?'has-choice':''}">${esc(sentence)}</div><div class="choice-options">${step.options.map((o,i)=>`<button class="choice-option ${g.currentChoice===i?'selected':''}" data-choice="${i}">${esc(o)}</button>`).join('')}</div></div><div class="choice-story-trail" aria-label="Bisherige Geschichte">${g.chosen.length?g.chosen.slice(-3).map((choice,i)=>{const idx=g.chosen.length-Math.min(3,g.chosen.length)+i;return `<div>${esc(sentenceFromChoice(story.steps[idx],story.steps[idx].options[choice]))}</div>`}).join(''):'<span class="muted">Die gewählten Sätze sammeln sich hier zu einer Geschichte.</span>'}</div></div></div>`;
@@ -1612,7 +1626,7 @@ function clickDefaultAction(){
 }
 
 // ---------- Service worker ----------
-if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.8.8',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
+if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.8.9',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
 
 // ---------- Global events/init ----------
 window.__WZ_BOOT_PHASE='ui-bind';
