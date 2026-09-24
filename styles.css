@@ -1012,7 +1012,7 @@ body.session-mode .session-word:not(.multi){white-space:nowrap!important;max-wid
 @media(max-width:700px){.duplicate-row{grid-template-columns:30px minmax(0,1fr)}.duplicate-row>span:last-child{grid-column:2}.duplicate-actions{align-items:stretch;flex-direction:column}.duplicate-actions>span{margin:0}.duplicate-actions button{width:100%}}
 
 
-/* v0.8.10 layout and readability refinements */
+/* v0.8.11 layout and readability refinements */
 .list-browser{grid-template-columns:minmax(340px,430px) minmax(0,1fr)!important;align-items:start!important}
 .list-tree{max-height:calc(100vh - 205px)!important;padding:14px!important;scrollbar-gutter:stable both-edges}
 #listTree.section{margin-top:10px}
@@ -1030,7 +1030,7 @@ body.game-syllables .syllable-result{display:flex!important;align-items:center!i
 body.game-syllables .hex-frame .hex-syllable{display:flex!important;align-items:center!important;justify-content:center!important;padding:6px 10px!important;text-align:center!important}
 
 
-/* v0.8.10 syllable board widening */
+/* v0.8.11 syllable board widening */
 body.game-syllables .hex-wrap{padding:clamp(26px,4vh,48px) clamp(96px,13vw,190px) clamp(20px,3vh,34px)!important;}
 body.game-syllables .hex-frame{width:min(74vw,720px)!important;aspect-ratio:1.42 / 1!important;max-width:100%!important;}
 body.game-syllables .hex-frame .hex-shape{clip-path:polygon(18% 6%,82% 6%,100% 50%,82% 94%,18% 94%,0 50%)!important;}
@@ -1051,7 +1051,7 @@ body.game-syllables .syllable-piece{min-width:clamp(86px,10vw,150px)!important;p
 }
 
 
-/* v0.8.10 therapy-flow polish */
+/* v0.8.11 therapy-flow polish */
 @keyframes storySuccessFade{0%,62%{opacity:1;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-50%) scale(.985)}}
 .game-floating-message.story-success-notice{animation:storySuccessFade 2.65s ease forwards;pointer-events:none}
 body.game-letters .letter-assist{width:min(900px,94%);margin:clamp(16px,3vh,28px) auto 0;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;background:color-mix(in srgb,var(--surface) 88%,var(--accent-2))}
@@ -1063,7 +1063,7 @@ body.game-letters .info-banner{background:color-mix(in srgb,var(--accent) 10%,va
 @media(max-width:720px){body.game-letters .letter-assist{align-items:stretch}body.game-letters .letter-assist-actions{display:grid;grid-template-columns:1fr;flex:1 1 100%}body.game-letters .letter-assist-actions button{width:100%}}
 
 
-/* v0.8.10 – prominent syllable controls and split-sentence choice stories */
+/* v0.8.11 – prominent syllable controls and split-sentence choice stories */
 body.game-syllables .syllable-control-btn{
   min-height:56px;
   min-width:132px;
@@ -1093,9 +1093,33 @@ body.game-syllables .syllable-control-btn:active{transform:translateY(1px)}
 }
 
 
-/* v0.8.10 – simple authoring rule for Auswahlgeschichten */
+/* v0.8.11 – simple authoring rule for Auswahlgeschichten */
 .choice-story-rule{border:2px solid color-mix(in srgb,var(--accent) 38%,var(--line));background:color-mix(in srgb,var(--accent-2) 72%,var(--surface));border-radius:16px;padding:14px 16px;display:grid;gap:8px;line-height:1.45;font-size:16px}
 .choice-story-rule>strong{font-size:18px;color:var(--ink)}
 .choice-story-rule small{font-size:14px;color:var(--muted);line-height:1.45}
 .choice-story-example{display:grid;gap:3px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:15px}
 .choice-story-example span:first-child{font-weight:900;margin-bottom:3px}
+
+
+/* v0.8.11 — simple structured authoring for Auswahlgeschichten */
+.new-list-type-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.new-list-type{border:1px solid var(--line);background:var(--surface-2);border-radius:14px;padding:12px 14px;display:grid;gap:4px;cursor:pointer;min-height:72px}
+.new-list-type input{position:absolute;opacity:0;pointer-events:none}
+.new-list-type strong{font-size:16px}.new-list-type span{font-size:13px;color:var(--muted)}
+.new-list-type.active{border-color:color-mix(in srgb,var(--accent) 58%,var(--line));background:var(--accent-2);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 15%,transparent)}
+.choice-story-start-card{margin-top:10px;border:1px solid var(--line);border-radius:14px;background:var(--surface-2);padding:14px;display:grid;gap:4px}
+.choice-story-editor{min-width:min(860px,86vw)}
+.choice-story-task-nav{display:grid;grid-template-columns:auto minmax(180px,1fr) auto auto;gap:8px;align-items:center;margin:10px 0 12px}
+.choice-story-task-card{border:1px solid var(--line);border-radius:16px;background:var(--surface-2);padding:16px;display:grid;gap:14px}
+.choice-story-task-head{display:flex;justify-content:space-between;gap:12px;align-items:center}
+.choice-story-slot-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.choice-slot-btn{font-weight:900;min-height:46px}
+.choice-story-answer-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.choice-story-task-actions{display:flex;justify-content:flex-end}
+@media(max-width:760px){
+  .new-list-type-grid{grid-template-columns:1fr}
+  .choice-story-editor{min-width:0}
+  .choice-story-task-nav{grid-template-columns:1fr 1fr}
+  .choice-story-task-nav select{grid-column:1/-1;grid-row:1}
+  .choice-story-answer-grid{grid-template-columns:1fr}
+}

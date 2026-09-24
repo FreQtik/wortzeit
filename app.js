@@ -7,8 +7,8 @@ const AUDIO_DB = 'wortzeit_audio_v1';
 const STATE_DB = 'wortzeit_state_v1';
 const STATE_STORE = 'app';
 const STATE_KEY = 'state';
-const OFFLINE_CACHE = 'wortzeit-v0.8.10';
-const OFFLINE_SHELL = ['./','./index.html','./app.html','./behandler.html','./patient.html','./styles.css?v=0.8.10','./data.js?v=0.8.10','./app.js?v=0.8.10','./manifest-patient.webmanifest','./manifest-therapist.webmanifest'];
+const OFFLINE_CACHE = 'wortzeit-v0.8.11';
+const OFFLINE_SHELL = ['./','./index.html','./app.html','./behandler.html','./patient.html','./styles.css?v=0.8.11','./data.js?v=0.8.11','./app.js?v=0.8.11','./manifest-patient.webmanifest','./manifest-therapist.webmanifest'];
 const $ = (sel, root=document) => root.querySelector(sel);
 const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 const esc = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
@@ -563,7 +563,7 @@ function renderLists(){
     const entries=[...groups.entries()].sort((a,b)=>a[0].localeCompare(b[0],'de',{sensitivity:'base',numeric:true}));
     $('#listTree').innerHTML=entries.map(([cat,arr])=>{
       const open=!!norm||!!state.listFolderOpen?.[cat],unreviewed=arr.filter(listNeedsReview).length;
-      return `<div class="list-folder-group"><button class="list-folder-toggle ${open?'open':''}" data-folder-toggle="${esc(cat)}" data-folder-drop="${esc(cat)}" aria-expanded="${open?'true':'false'}"><span class="folder-arrow">${open?'▾':'▸'}</span><span class="folder-name" title="${esc(cat)}">${esc(folderDisplayName(cat))}</span><span class="folder-count">${arr.length}</span>${unreviewed?`<span class="folder-review-count">${unreviewed} neu</span>`:''}</button>${open?`<div class="list-folder-content">${arr.map(L=>{const status=listReviewStatusLabel(L);return `<div class="list-item-row" draggable="${L.bundled?'false':'true'}" data-list-drag="${esc(L.id)}"><button class="list-item ${L.id===state.currentListId?'active':''}" data-list-id="${esc(L.id)}"><div class="list-item-title-line"><strong>${esc(L.title)}</strong>${status&&L.review?.status!=='checked'?`<span class="list-review-pill ${L.review.status}">${status}</span>`:''}</div><small>${L.items?.length||0} Einträge${L.kind==='pair'?' · A/B':''}</small><span class="list-game-mini">${listGameTags(L).filter(x=>x!=='session').slice(0,4).map(x=>esc(LIST_GAME_LABELS[x])).join(' · ')}</span></button><button class="mix-check ${activeIds.has(L.id)?'checked':''}" data-mix-list="${esc(L.id)}" aria-label="${activeIds.has(L.id)?'Aus Mischung entfernen':'Zur Mischung hinzufügen'}" title="${activeIds.has(L.id)?'In Mischübung aktiv':'Zur Mischübung hinzufügen'}">${activeIds.has(L.id)?'✓':'+'}</button></div>`}).join('')}</div>`:''}</div>`;
+      return `<div class="list-folder-group"><button class="list-folder-toggle ${open?'open':''}" data-folder-toggle="${esc(cat)}" data-folder-drop="${esc(cat)}" aria-expanded="${open?'true':'false'}"><span class="folder-arrow">${open?'▾':'▸'}</span><span class="folder-name" title="${esc(cat)}">${esc(folderDisplayName(cat))}</span><span class="folder-count">${arr.length}</span>${unreviewed?`<span class="folder-review-count">${unreviewed} neu</span>`:''}</button>${open?`<div class="list-folder-content">${arr.map(L=>{const status=listReviewStatusLabel(L);return `<div class="list-item-row" draggable="${L.bundled?'false':'true'}" data-list-drag="${esc(L.id)}"><button class="list-item ${L.id===state.currentListId?'active':''}" data-list-id="${esc(L.id)}"><div class="list-item-title-line"><strong>${esc(L.title)}</strong>${status&&L.review?.status!=='checked'?`<span class="list-review-pill ${L.review.status}">${status}</span>`:''}</div><small>${L.kind==='choiceStory'&&choiceStoryStepsFromList(L).length?`${choiceStoryStepsFromList(L).length} Aufgaben`:`${L.items?.length||0} Einträge${L.kind==='pair'?' · A/B':''}`}</small><span class="list-game-mini">${listGameTags(L).filter(x=>x!=='session').slice(0,4).map(x=>esc(LIST_GAME_LABELS[x])).join(' · ')}</span></button><button class="mix-check ${activeIds.has(L.id)?'checked':''}" data-mix-list="${esc(L.id)}" aria-label="${activeIds.has(L.id)?'Aus Mischung entfernen':'Zur Mischung hinzufügen'}" title="${activeIds.has(L.id)?'In Mischübung aktiv':'Zur Mischübung hinzufügen'}">${activeIds.has(L.id)?'✓':'+'}</button></div>`}).join('')}</div>`:''}</div>`;
     }).join('')||'<p class="muted">Keine Treffer.</p>';
     $$('[data-folder-toggle]').forEach(b=>b.onclick=()=>{const cat=b.dataset.folderToggle;state.listFolderOpen=state.listFolderOpen||{};state.listFolderOpen[cat]=!state.listFolderOpen[cat];saveState();renderTree($('#listSearch').value);});
     $$('[data-list-id]').forEach(b=>b.onclick=()=>{rememberListBrowserUi();setCurrentList(b.dataset.listId);renderLists();});
@@ -576,7 +576,7 @@ function renderLists(){
     if(!L){$('#listDetail').innerHTML=`<div class="empty-list-detail"><div class="material-gate-icon">≡</div><h2>Liste auswählen</h2><p class="muted">Wähle links eine vorhandene Liste oder importiere einen Ordner. Die integrierten Standardwörter werden hier absichtlich nicht als normale Liste angezeigt.</p></div>`;return;}
     const preview=(L.items||[]).slice(0,160),tags=listGameTags(L),review=L.review;
     $('#listDetail').innerHTML=`<div class="section-title"><div><div class="eyebrow" title="${esc(listFolders(L).join(' / '))}">${esc(folderDisplayList(listFolders(L)))}</div><h2>${esc(L.title)}</h2></div><div class="toolbar"><button class="primary-btn" data-route="session">Verwenden</button><button class="soft-btn" id="mixThis">${activeIds.has(L.id)?'✓ In Mischung':'＋ Zur Mischung'}</button><button class="soft-btn" id="recordBank">Aufnahmebank</button><button class="soft-btn" id="editList">${L.bundled?'Kopie bearbeiten':'Liste bearbeiten'}</button><button class="soft-btn" id="exportList">Export</button>${review&&listNeedsReview(L)?`<button class="review-done-btn" id="markReviewed">✓ Geprüft</button>`:''}${L.bundled?'':`<button class="danger-btn" id="deleteList">Löschen</button>`}</div></div>
-      <p class="muted">${L.items?.length||0} Einträge · ${L.kind==='pair'?'A/B-Paare':L.kind==='choiceStory'?'Auswahlgeschichte':'Wort-/Textliste'}</p>
+      <p class="muted">${L.kind==='choiceStory'&&choiceStoryStepsFromList(L).length?`${choiceStoryStepsFromList(L).length} Aufgaben · Auswahlgeschichte`:`${L.items?.length||0} Einträge · ${L.kind==='pair'?'A/B-Paare':'Wort-/Textliste'}`}</p>
       ${review?`<div class="list-review-detail ${esc(review.status)}"><strong>${esc(listReviewStatusLabel(L)||'Import')}</strong><span>Erkennung: ${esc(confidenceLabel(review.confidence))}${review.separator?` · Trennung: ${esc(review.separator)}`:''}</span>${review.warnings?.length?`<span>${review.warnings.map(esc).join(' · ')}</span>`:''}</div>`:''}
       <div class="list-game-tags"><span class="muted small">Geeignet für:</span>${tags.map(t=>`<span class="list-game-tag">${esc(LIST_GAME_LABELS[t]||t)}</span>`).join('')}</div>
       <div class="item-preview editable-preview">${preview.map((x,i)=>`<button class="preview-row preview-edit-row" data-edit-item="${i}" title="Eintrag bearbeiten"><span class="muted small">${i+1}.</span><span>${esc(x.sourceText||x.text)}</span><span class="preview-edit-mark">✎</span></button>`).join('')}${(L.items?.length||0)>preview.length?`<div class="preview-row muted">… und ${(L.items.length-preview.length)} weitere</div>`:''}</div><div class="divider"></div><div class="small muted">Quelle: ${esc(L.sourcePath||'lokal angelegt')}</div>`;
@@ -607,19 +607,53 @@ function renderLists(){
 }
 function safeFilename(s){return String(s).replace(/[\\/:*?"<>|]+/g,'_').trim()||'Datei';}
 function openNewListModal(){
-  openModal(`<div class="modal-head"><div><div class="eyebrow">Neue Liste</div><h2>Wörter einfügen</h2></div><button class="icon-btn" data-close-modal>×</button></div><div class="grid"><div class="form-row"><div class="field grow"><label>Listenname</label><input id="nlName" placeholder="z. B. Tiere"></div><div class="field"><label>Trennzeichen zwischen Einträgen</label><input id="nlSep" value="-" maxlength="5"></div><div class="field"><label>Silbentrenner <span class="muted">(optional)</span></label><input id="nlSyllSep" value="·" maxlength="3" placeholder="z. B. ·"></div><label class="toggle"><input id="nlPair" type="checkbox"> A/B-Paare</label><label class="toggle"><input id="nlChoiceStory" type="checkbox"> Auswahlgeschichte</label></div><div id="nlChoiceStoryHelp" hidden>${choiceStoryRuleHtml()}</div><div class="field"><label>Inhalt</label><textarea id="nlText" placeholder="Hund-Katze-Maus-…"></textarea></div><div class="small muted">Für eigene Silben kannst du z. B. als Eintrags-Trennzeichen <strong>;</strong> und als Silbentrenner <strong>-</strong> verwenden: <strong>Ba-na-ne;To-ma-te;Ka-me-ra</strong>.</div></div><div class="modal-foot"><button class="primary-btn" id="nlSave">Liste speichern</button></div>`);
-  const updateStoryHelp=()=>{$('#nlChoiceStoryHelp').hidden=!$('#nlChoiceStory').checked;};
-  $('#nlChoiceStory').onchange=()=>{if($('#nlChoiceStory').checked){$('#nlPair').checked=false;if($('#nlSep').value==='-')$('#nlSep').value='';}updateStoryHelp();};
-  $('#nlPair').onchange=()=>{if($('#nlPair').checked){$('#nlChoiceStory').checked=false;updateStoryHelp();}};
-  updateStoryHelp();
+  openModal(`<div class="modal-head"><div><div class="eyebrow">Neue Liste</div><h2>Material anlegen</h2></div><button class="icon-btn" data-close-modal>×</button></div>
+    <div class="grid">
+      <div class="field"><label>Listenname</label><input id="nlName" placeholder="z. B. Tiere oder Feuerwehrgeschichte"></div>
+      <div class="new-list-type-grid" aria-label="Art der Liste">
+        <label class="new-list-type active"><input type="radio" name="nlType" value="list" checked><strong>Normale Liste</strong><span>Wörter oder kurze Texte</span></label>
+        <label class="new-list-type"><input type="radio" name="nlType" value="pair"><strong>A/B-Paare</strong><span>z. B. Memory-Paare</span></label>
+        <label class="new-list-type"><input type="radio" name="nlType" value="choiceStory"><strong>Auswahlgeschichte</strong><span>Satz + Antworten</span></label>
+      </div>
+      <div id="nlStandardArea">
+        <div class="form-row">
+          <div class="field"><label>Trennzeichen zwischen Einträgen</label><input id="nlSep" value="-" maxlength="5"></div>
+          <div class="field"><label>Silbentrenner <span class="muted">(optional)</span></label><input id="nlSyllSep" value="·" maxlength="3" placeholder="z. B. ·"></div>
+        </div>
+        <div class="field"><label>Inhalt</label><textarea id="nlText" placeholder="Hund-Katze-Maus-…"></textarea></div>
+        <div class="small muted">Für eigene Silben kannst du z. B. als Eintrags-Trennzeichen <strong>;</strong> und als Silbentrenner <strong>-</strong> verwenden: <strong>Ba-na-ne;To-ma-te;Ka-me-ra</strong>.</div>
+      </div>
+      <div id="nlChoiceStoryArea" hidden>
+        ${choiceStoryRuleHtml()}
+        <div class="choice-story-start-card">
+          <strong>Kein Trennzeichen nötig.</strong>
+          <span>WortZeit öffnet dafür einen einfachen Geschichten-Editor. Dort trägst du Satz und Antworten direkt in eigene Felder ein.</span>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="primary-btn" id="nlSave">Liste speichern</button></div>`);
+  const type=()=>document.querySelector('input[name="nlType"]:checked')?.value||'list';
+  const updateType=()=>{
+    const story=type()==='choiceStory';
+    $('#nlStandardArea').hidden=story;
+    $('#nlChoiceStoryArea').hidden=!story;
+    $('#nlSave').textContent=story?'Geschichte erstellen →':'Liste speichern';
+    $$('.new-list-type').forEach(x=>x.classList.toggle('active',x.querySelector('input')?.checked));
+  };
+  $$('input[name="nlType"]').forEach(r=>r.onchange=updateType);
+  updateType();
   $('#nlSave').onclick=()=>{
-    const name=$('#nlName').value.trim()||'Neue Liste',text=$('#nlText').value,sep=$('#nlSep').value,syllSep=$('#nlSyllSep').value;
+    const name=$('#nlName').value.trim()||'Neue Liste',kind=type();
+    if(kind==='choiceStory'){
+      closeModal();
+      openChoiceStoryEditor(null,null,{title:name});
+      return;
+    }
+    const text=$('#nlText').value,sep=$('#nlSep').value,syllSep=$('#nlSyllSep').value;
     if(sep&&syllSep&&sep===syllSep)return toast('Eintrags-Trennzeichen und Silbentrenner müssen verschieden sein');
     const pieces=parsePlainList(text,sep);if(!pieces.length)return toast('Keine Einträge gefunden');
-    if($('#nlChoiceStory').checked){const err=validateChoiceStoryEntries(pieces);if(err)return toast(err);}
     const L=makeUserList(name,pieces,'Eigene Listen','',syllSep,sep);
-    if($('#nlPair').checked){L.kind='pair';L.pairs=[];for(let i=0;i<L.items.length-1;i+=2)L.pairs.push({id:uid('pair'),a:L.items[i].text,b:L.items[i+1].text});}
-    if($('#nlChoiceStory').checked)L.kind='choiceStory';
+    if(kind==='pair'){L.kind='pair';L.pairs=[];for(let i=0;i<L.items.length-1;i+=2)L.pairs.push({id:uid('pair'),a:L.items[i].text,b:L.items[i+1].text});}
     L.gameTags=inferListGameTags(L);state.userLists.push(L);state.currentListId=L.id;state.activeListIds=[L.id];rememberList(L.id);saveState();session=null;game={};closeModal();renderLists();toast('Liste gespeichert');
   };
 }
@@ -658,9 +692,148 @@ function parseEditorItems(L,text,syllSep,mode='formatted',entrySep=''){
   }
   return editorValuesToItems(L,String(text||'').replace(/\r/g,'').split('\n').map(x=>x.trim()).filter(Boolean),syllSep);
 }
+
+function choiceStoryStepTemplate(step){
+  const prompt=String(step?.prompt||'').trim(),suffix=String(step?.suffix||'').trim();
+  return suffix?`${prompt}${prompt?' ':''}${CHOICE_STORY_SLOT}${suffix?' '+suffix:''}`:prompt;
+}
+function choiceStoryStepsFromList(L){
+  if(!L)return [];
+  if(Array.isArray(L.choiceStorySteps)&&L.choiceStorySteps.length){
+    return L.choiceStorySteps.map(normalizeChoiceStoryStep).filter(Boolean);
+  }
+  if(!Array.isArray(L.items)||!L.items.length||L.items.length%5!==0)return [];
+  const out=[];
+  for(let i=0;i<L.items.length;i+=5){
+    const parsed=parseChoiceStoryTemplate(L.items[i]?.text||'');
+    const options=L.items.slice(i+1,i+5).map(x=>String(x?.text||'').trim()).filter(Boolean);
+    if(parsed.error||options.length!==4)return [];
+    out.push({prompt:parsed.prompt,suffix:parsed.suffix,options});
+  }
+  return out;
+}
+function choiceStoryStepsToItems(L,steps){
+  const old=L.items||[],values=[];
+  for(const step of steps){
+    values.push(choiceStoryStepTemplate(step),...(step.options||[]));
+  }
+  return values.map((text,i)=>({id:old[i]?.id||uid(`story${i}`),text:String(text||'').trim(),sourceText:String(text||'').trim()})).filter(x=>x.text);
+}
+function openChoiceStoryEditor(sourceList,returnReviewScope=null,opts={}){
+  const isNew=!sourceList;
+  const L=isNew?makeUserList(opts.title||'Neue Auswahlgeschichte',[],'Eigene Listen','','',''):normalizeListStorage(sourceList);
+  L.kind='choiceStory';
+  if(isNew)L.gameTags=['session','choiceStory'];
+  const existing=choiceStoryStepsFromList(L);
+  let draft=(existing.length?existing:[{prompt:'',suffix:'',options:['','','','']}]).map(step=>({
+    template:choiceStoryStepTemplate(step),
+    options:[...(step.options||[])].slice(0,4)
+  }));
+  draft.forEach(x=>{while(x.options.length<4)x.options.push('');});
+  let stepIndex=0,folderSet=new Set(listFolders(L)),selected=listGameTags(L);
+  const folderOptions=knownFolders().map(f=>`<option value="${esc(f)}"></option>`).join('');
+  openModal(`<div class="modal-head"><div><div class="eyebrow">${isNew?'Neue Auswahlgeschichte':'Auswahlgeschichte bearbeiten'}</div><h2>${esc(L.title)}</h2></div><button class="icon-btn" data-close-modal>×</button></div>
+    <div class="grid choice-story-editor">
+      <div class="field"><label>Name der Geschichte</label><input id="csTitle" value="${esc(L.title)}"></div>
+      ${choiceStoryRuleHtml()}
+      <div class="section">
+        <div class="eyebrow">Ordner</div>
+        <div id="csFolderChips" class="folder-assignment-chips"></div>
+        <div class="form-row folder-assignment-row"><div class="field grow"><label>Weiteren Ordner zuweisen</label><input id="csFolderInput" list="csFolderSuggestions" placeholder="Ordner wählen oder neuen Namen eingeben"><datalist id="csFolderSuggestions">${folderOptions}</datalist></div><button class="soft-btn" id="csFolderAdd">+ Zuweisen</button></div>
+      </div>
+      <div class="section">
+        <div class="eyebrow">Aufgaben</div>
+        <div class="choice-story-task-nav">
+          <button class="soft-btn" id="csPrev">← Vorherige</button>
+          <select id="csStepSelect" aria-label="Aufgabe wählen"></select>
+          <button class="soft-btn" id="csNext">Nächste →</button>
+          <button class="secondary-btn" id="csAdd">+ Neue Aufgabe</button>
+        </div>
+        <div id="csTaskEditor" class="choice-story-task-card"></div>
+      </div>
+      <div class="section">
+        <div class="eyebrow">Geeignet für</div>
+        <div class="game-tag-grid" id="csGameTags">${gameTagCheckboxes(selected)}</div>
+      </div>
+    </div>
+    <div class="modal-foot">${returnReviewScope?`<button class="soft-btn" id="csBackReview">← Importprüfung</button>`:''}<button class="soft-btn" id="csExport">Als Text exportieren</button><button class="primary-btn" id="csSave">${isNew?'Geschichte speichern':'Änderungen speichern'}</button></div>`);
+  const renderFolders=()=>{
+    $('#csFolderChips').innerHTML=[...folderSet].map(f=>`<span class="folder-assignment-chip"><span class="folder-assignment-name">${esc(f)}</span><button type="button" class="folder-assignment-remove" data-cs-remove-folder="${esc(f)}" aria-label="Aus Ordner ${esc(f)} entfernen">×</button></span>`).join('');
+    $$('[data-cs-remove-folder]').forEach(b=>b.onclick=()=>{const r=removeFolderAssignment(folderSet,b.dataset.csRemoveFolder);if(r.changed)renderFolders();});
+  };
+  renderFolders();
+  $('#csFolderAdd').onclick=()=>{const f=$('#csFolderInput').value.trim();if(!f)return;folderSet.add(f);$('#csFolderInput').value='';renderFolders();};
+  const flushTask=()=>{
+    const d=draft[stepIndex];if(!d)return;
+    d.template=$('#csTemplate')?.value??d.template;
+    d.options=[1,2,3,4].map(n=>$(`#csOption${n}`)?.value??d.options[n-1]??'');
+  };
+  const renderNav=()=>{
+    const sel=$('#csStepSelect');
+    sel.innerHTML=draft.map((_,i)=>`<option value="${i}">Aufgabe ${i+1} von ${draft.length}</option>`).join('');
+    sel.value=String(stepIndex);
+    $('#csPrev').disabled=stepIndex===0;$('#csNext').disabled=stepIndex===draft.length-1;
+  };
+  const renderTask=()=>{
+    const d=draft[stepIndex];renderNav();
+    $('#csTaskEditor').innerHTML=`<div class="choice-story-task-head"><strong>Aufgabe ${stepIndex+1}</strong><span class="muted">Satz + bis zu 4 Antworten</span></div>
+      <div class="field"><label>Satz</label><textarea id="csTemplate" rows="3" placeholder="z. B. Was für ein Glück, dass niemand ___ gekommen ist!">${esc(d.template||'')}</textarea></div>
+      <div class="choice-story-slot-row"><button class="soft-btn choice-slot-btn" id="csInsertSlot">___ Antwort hier einsetzen</button><span class="small muted">Ohne ___ wird die Antwort hinten angefügt.</span></div>
+      <div class="choice-story-answer-grid">
+        ${[1,2,3,4].map(n=>`<div class="field"><label>Antwort ${n}${n===4?' (optional bei älteren Geschichten)':''}</label><input id="csOption${n}" value="${esc(d.options[n-1]||'')}" placeholder="Antwort ${n}"></div>`).join('')}
+      </div>
+      <div class="choice-story-task-actions"><button class="danger-btn" id="csDeleteTask" ${draft.length<=1?'disabled':''}>Aufgabe löschen</button></div>`;
+    $('#csInsertSlot').onclick=()=>{
+      const el=$('#csTemplate'),start=el.selectionStart??el.value.length,end=el.selectionEnd??start;
+      if((el.value.match(/___/g)||[]).length>=1)return toast('In einem Satz reicht eine Lücke.');
+      const before=el.value.slice(0,start),after=el.value.slice(end);
+      const left=before&&!/\s$/.test(before)?' ':'',right=after&&!/^\s/.test(after)?' ':'';
+      el.value=`${before}${left}___${right}${after}`;
+      el.focus();const pos=(before+left+'___').length;el.setSelectionRange(pos,pos);
+    };
+    $('#csDeleteTask').onclick=()=>{if(draft.length<=1)return;draft.splice(stepIndex,1);stepIndex=Math.min(stepIndex,draft.length-1);renderTask();};
+  };
+  renderTask();
+  $('#csPrev').onclick=()=>{flushTask();if(stepIndex>0){stepIndex--;renderTask();}};
+  $('#csNext').onclick=()=>{flushTask();if(stepIndex<draft.length-1){stepIndex++;renderTask();}};
+  $('#csStepSelect').onchange=e=>{flushTask();stepIndex=+e.target.value||0;renderTask();};
+  $('#csAdd').onclick=()=>{flushTask();draft.push({template:'',options:['','','','']});stepIndex=draft.length-1;renderTask();setTimeout(()=>$('#csTemplate')?.focus(),0);};
+  const validateDraft=()=>{
+    flushTask();const steps=[];
+    for(let i=0;i<draft.length;i++){
+      const parsed=parseChoiceStoryTemplate(draft[i].template);
+      if(parsed.error)return {error:`Aufgabe ${i+1}: ${parsed.error}`};
+      const options=draft[i].options.map(x=>String(x||'').trim()).filter(Boolean);
+      if(options.length<3)return {error:`Aufgabe ${i+1}: Bitte mindestens 3 Antworten eintragen.`};
+      steps.push({prompt:parsed.prompt,suffix:parsed.suffix,options});
+    }
+    return {steps};
+  };
+  $('#csSave').onclick=()=>{
+    const result=validateDraft();if(result.error)return toast(result.error);
+    L.title=$('#csTitle').value.trim()||'Auswahlgeschichte';
+    L.kind='choiceStory';L.entrySeparator='';L.syllableSeparator='';L.choiceStorySteps=result.steps;L.items=choiceStoryStepsToItems(L,result.steps);
+    setListFolders(L,[...folderSet]);
+    L.gameTags=$$('#csGameTags input:checked').map(x=>x.value);
+    if(!L.gameTags.includes('session'))L.gameTags.unshift('session');
+    if(!L.gameTags.includes('choiceStory'))L.gameTags.push('choiceStory');
+    if(L.review){L.review.status='checked';L.review.checkedAt=new Date().toISOString();}
+    if(isNew){L.origin='created';state.userLists.push(L);}
+    state.currentListId=L.id;state.activeListIds=[L.id];rememberList(L.id);saveState();session=null;game={};closeModal();renderLists();toast(isNew?'Geschichte gespeichert':'Geschichte aktualisiert');
+    if(returnReviewScope)setTimeout(()=>openImportReview(returnReviewScope),30);
+  };
+  $('#csExport').onclick=()=>{
+    const result=validateDraft();if(result.error)return toast(result.error);
+    const blocks=result.steps.map(step=>[choiceStoryStepTemplate(step),...(step.options||[])].join('\n')).join('\n\n');
+    downloadBlob(`${safeFilename($('#csTitle').value||L.title)}.txt`,new Blob([blocks],{type:'text/plain;charset=utf-8'}));
+  };
+  $('#csBackReview')?.addEventListener('click',()=>{closeModal();renderLists();setTimeout(()=>openImportReview(returnReviewScope),20);});
+}
 function gameTagCheckboxes(selected){return Object.entries(LIST_GAME_LABELS).map(([id,label])=>`<label class="game-tag-check"><input type="checkbox" value="${id}" ${selected.includes(id)?'checked':''}><span>${esc(label)}</span></label>`).join('');}
 function openListEditor(sourceList,returnReviewScope=null){
-  const L=normalizeListStorage(editListTarget(sourceList)),selected=listGameTags(L),kind=L.kind||'list';
+  const L=normalizeListStorage(editListTarget(sourceList));
+  if(L.kind==='choiceStory'||Array.isArray(L.choiceStorySteps)){openChoiceStoryEditor(L,returnReviewScope);return;}
+  const selected=listGameTags(L),kind=L.kind||'list';
   let editorMode='formatted',folderSet=new Set(listFolders(L));
   const folderOptions=knownFolders().map(f=>`<option value="${esc(f)}"></option>`).join('');
   openModal(`<div class="modal-head"><div><div class="eyebrow">Liste bearbeiten</div><h2>${esc(L.title)}</h2></div><button class="icon-btn" data-close-modal>×</button></div>
@@ -1359,7 +1532,7 @@ function validateChoiceStoryEntries(entries){
   return '';
 }
 function choiceStoryRuleHtml(){
-  return `<div class="choice-story-rule"><strong>Auswahlgeschichte – einfache Regel</strong><div>Jede Aufgabe hat <strong>5 Zeilen</strong>: zuerst der Satz, darunter <strong>4 Antworten</strong>.</div><div>Soll die Antwort <strong>mitten im Satz</strong> stehen, schreibe genau <strong>___</strong> an diese Stelle.</div><div class="choice-story-example"><span>Was für ein Glück, dass niemand ___ gekommen ist!</span><span>zu spät</span><span>zu Schaden</span><span>zum Feiern</span><span>ins Krankenhaus</span></div><small>Ohne ___ wird die gewählte Antwort wie bisher hinten an den Satz angefügt.</small></div>`;
+  return `<div class="choice-story-rule"><strong>Auswahlgeschichte – ganz einfach</strong><div>Für jede Aufgabe gibt es ein Feld für den <strong>Satz</strong> und darunter bis zu <strong>4 Antworten</strong>. Du brauchst dafür kein Trennzeichen.</div><div>Soll die Antwort <strong>mitten im Satz</strong> stehen, setze dort <strong>___</strong> ein. Der Editor hat dafür auch einen eigenen Knopf.</div><div class="choice-story-example"><span>Was für ein Glück, dass niemand ___ gekommen ist!</span><span>zu spät</span><span>zu Schaden</span><span>zum Feiern</span><span>ins Krankenhaus</span></div><small>Ohne ___ setzt WortZeit die gewählte Antwort automatisch ans Satzende.</small></div>`;
 }
 function normalizeChoiceStoryStep(step){
   const prompt=String(step?.prompt||'').trim();
@@ -1659,7 +1832,7 @@ function contextualHelp(){
   const map={
     home:['Start','Wähle eine Liste oder starte direkt mit den Standardwörtern. Danach kannst du eine Wort-Sitzung, ein Spiel oder einen vorbereiteten Therapieplan öffnen.'],
     session:['Sitzung','Das große Wort oder der Satz ist die Übung. Tippe auf die Wortfläche für den nächsten Eintrag; mit ← und → gehst du innerhalb der aktuellen Reihenfolge zurück oder vor. „↺ Anfang“ springt zum Beginn dieser Runde, ▶ startet die automatische Anzeige. Oben kannst du Helligkeit und mit „Aa“ die gewünschte Schriftgröße direkt verändern. WortZeit verkleinert sehr lange Texte trotzdem automatisch so weit, dass nichts abgeschnitten wird.'],
-    lists:['Listen','Hier wählst und pflegst du dein Material. Ordner bleiben zunächst geschlossen und lassen sich durch Anklicken auf- und zuklappen. Nach einem Import zeigt „Import prüfen“ genau die neuen Listen mit erkanntem Typ, Trennzeichen, Eintragszahl und passenden Spielen. Neu oder unklar erkannte Listen bleiben markiert, bis du sie bestätigst. „Alle schließen“ bringt die Ansicht jederzeit wieder in einen ruhigen Zustand. Öffne eine Liste und wähle „Liste bearbeiten“, um Text, A/B-Typ, Eintrags- und Silbentrenner, Spielzuordnungen und mehrere Therapie-Ordner zu ändern. Das × an einem Ordner entfernt nur diese Zuordnung; die Liste selbst bleibt erhalten und landet beim letzten entfernten Ordner unter „Unsortiert“. Eine Liste kann gleichzeitig in mehreren Ordnern erscheinen und auch per Drag & Drop einem weiteren Ordner zugewiesen werden. „Aufgelistet“ eignet sich zum einzelnen Korrigieren, „Unformatiert“ zum Einfügen größerer Textblöcke. „Duplikate prüfen“ meldet nur Listen, deren gespeicherter therapeutischer Inhalt 1:1 identisch ist. Es wird niemals automatisch gelöscht. Beim manuellen Zusammenführen werden Ordner, Spielzuordnungen, Patienten- und Therapieplan-Verknüpfungen auf die behaltene Liste übernommen; konkurrierende Aufnahmen werden nicht still überschrieben. Manuell im Programm erstellte Listen werden genauso wie importierte Listen im WortZeit-Datenpaket gesichert.<br><br><strong>Auswahlgeschichten:</strong> Jede Aufgabe besteht aus 5 Zeilen: 1 Satz und 4 Antworten. Soll eine Antwort mitten im Satz stehen, schreibe im Satz genau <strong>___</strong> an diese Stelle. Ohne ___ wird die Antwort wie gewohnt hinten angefügt.'],
+    lists:['Listen','Hier wählst und pflegst du dein Material. Ordner bleiben zunächst geschlossen und lassen sich durch Anklicken auf- und zuklappen. Nach einem Import zeigt „Import prüfen“ genau die neuen Listen mit erkanntem Typ, Trennzeichen, Eintragszahl und passenden Spielen. Neu oder unklar erkannte Listen bleiben markiert, bis du sie bestätigst. „Alle schließen“ bringt die Ansicht jederzeit wieder in einen ruhigen Zustand. Öffne eine Liste und wähle „Liste bearbeiten“, um Text, A/B-Typ, Eintrags- und Silbentrenner, Spielzuordnungen und mehrere Therapie-Ordner zu ändern. Das × an einem Ordner entfernt nur diese Zuordnung; die Liste selbst bleibt erhalten und landet beim letzten entfernten Ordner unter „Unsortiert“. Eine Liste kann gleichzeitig in mehreren Ordnern erscheinen und auch per Drag & Drop einem weiteren Ordner zugewiesen werden. „Aufgelistet“ eignet sich zum einzelnen Korrigieren, „Unformatiert“ zum Einfügen größerer Textblöcke. „Duplikate prüfen“ meldet nur Listen, deren gespeicherter therapeutischer Inhalt 1:1 identisch ist. Es wird niemals automatisch gelöscht. Beim manuellen Zusammenführen werden Ordner, Spielzuordnungen, Patienten- und Therapieplan-Verknüpfungen auf die behaltene Liste übernommen; konkurrierende Aufnahmen werden nicht still überschrieben. Manuell im Programm erstellte Listen werden genauso wie importierte Listen im WortZeit-Datenpaket gesichert.<br><br><strong>Auswahlgeschichten:</strong> Beim Erstellen öffnet WortZeit einen eigenen einfachen Editor. Pro Aufgabe gibt es ein Feld für den Satz und darunter bis zu 4 Antworten – ein Trennzeichen musst du dafür nicht einstellen. Soll eine Antwort mitten im Satz stehen, setze im Satz <strong>___</strong> an diese Stelle; dafür gibt es im Editor auch den Knopf „___ Antwort hier einsetzen“. Ohne ___ setzt WortZeit die Antwort automatisch ans Satzende.'],
     games:['Spiele','Wähle einfach ein Spiel. Wenn noch keine passende Liste gewählt ist, fragt WortZeit direkt beim Öffnen danach – du musst nicht erst zurück in die Listenverwaltung. Im Spiel kannst du die Liste oben jederzeit wieder wechseln. ? erklärt das Spiel, × oder Escape beendet es.'],
     patients:['Patienten','Hier kannst du einen einfachen Anzeigenamen anlegen und passende Listen zuordnen. So findest du das vorbereitete Material später schneller wieder.'],
     plans:['Therapiepläne','Ein Therapieplan verbindet mehrere Übungen in einer festen Reihenfolge. Du kannst ihn selbst starten oder als .speechpack-Datei für den Patientenplayer weitergeben. Benötigte Listen und vorhandene Aufnahmen der verwendeten Einträge werden in das Therapiepaket übernommen. Mit den Pfeilen änderst du die Reihenfolge der Schritte. Das .speechpack ist nur die vorbereitete Patientenübung – dein kompletter WortZeit-Arbeitsstand wird separat unter „Daten & Geräte“ als Datenpaket gesichert.'],
@@ -1684,7 +1857,7 @@ function clickDefaultAction(){
 }
 
 // ---------- Service worker ----------
-if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.8.10',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
+if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.8.11',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
 
 // ---------- Global events/init ----------
 window.__WZ_BOOT_PHASE='ui-bind';
