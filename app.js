@@ -7,8 +7,8 @@ const AUDIO_DB = 'wortzeit_audio_v1';
 const STATE_DB = 'wortzeit_state_v1';
 const STATE_STORE = 'app';
 const STATE_KEY = 'state';
-const OFFLINE_CACHE = 'wortzeit-v0.8.11';
-const OFFLINE_SHELL = ['./','./index.html','./app.html','./behandler.html','./patient.html','./styles.css?v=0.8.11','./data.js?v=0.8.11','./app.js?v=0.8.11','./manifest-patient.webmanifest','./manifest-therapist.webmanifest'];
+const OFFLINE_CACHE = 'wortzeit-v0.8.12';
+const OFFLINE_SHELL = ['./','./index.html','./app.html','./behandler.html','./patient.html','./styles.css?v=0.8.12','./data.js?v=0.8.12','./app.js?v=0.8.12','./manifest-patient.webmanifest','./manifest-therapist.webmanifest'];
 const $ = (sel, root=document) => root.querySelector(sel);
 const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 const esc = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
@@ -318,7 +318,7 @@ function gameMaterialButton(){
   const label=hasExplicitMaterial()?activeMaterialTitle():(game.allowDefaultForRoute===route?'Fallback aktiv':'Liste wählen');
   return `<button class="soft-btn game-material-btn" id="gameMaterialButton" title="Liste für dieses Spiel ändern"><span class="game-material-static">Liste</span><span class="game-material-name"> · ${esc(label)}</span> ▾</button>`;
 }
-function gameHeader(title,subtitle,controls='',centerControl=''){return `<div class="game-head"><div class="game-head-left"><div class="game-history-controls"><button class="icon-btn game-back-btn" aria-label="Zurück" title="Zurück">←</button><button class="icon-btn game-forward-btn" aria-label="Vor" title="Vor">→</button></div><div class="game-title"><h1>${esc(title)}</h1><p>${subtitle}</p></div></div>${centerControl?`<div class="game-center-control">${centerControl}</div>`:''}<div class="game-controls">${gameMaterialButton()}${controls}<button class="icon-btn game-help-btn" aria-label="Hilfe" title="Hilfe">?</button><button class="icon-btn game-exit-btn" aria-label="Spiel verlassen" title="Zur Spieleauswahl">×</button></div></div>`;}
+function gameHeader(title,subtitle,controls='',centerControl=''){return `<div class="game-head"><div class="game-head-left"><div class="game-history-controls"><button class="icon-btn game-back-btn" aria-label="Zurück" title="Zurück">←</button><button class="icon-btn game-forward-btn" aria-label="Vor" title="Vor">→</button></div><div class="game-title"><h1>${esc(title)}</h1><p>${subtitle}</p></div></div><div class="game-center-control">${centerControl||''}</div><div class="game-controls"><div class="game-action-controls">${controls}</div><div class="game-nav-controls">${gameMaterialButton()}<button class="icon-btn game-help-btn" aria-label="Hilfe" title="Hilfe">?</button><button class="icon-btn game-exit-btn" aria-label="Spiel verlassen" title="Zur Spieleauswahl">×</button></div></div></div>`;}
 function bindGameChrome(){ $('.game-back-btn')?.addEventListener('click',gameBack);$('.game-forward-btn')?.addEventListener('click',navigationForward);$('.game-help-btn')?.addEventListener('click',contextualHelp); $('.game-exit-btn')?.addEventListener('click',exitGame); $('#gameMaterialButton')?.addEventListener('click',()=>openGameMaterialPicker(route));syncNavigationButtons(); }
 function applyGameMaterialSelection(ids,gameRoute){
   const valid=[...new Set(ids)].filter(id=>{const L=selectableLists().find(x=>x.id===id);return L&&listSupportsGame(L,gameRoute);});
@@ -1117,13 +1117,71 @@ function renderGames(){
 }
 
 // ---------- Letters ----------
+function makeLetterRound(item){
+  const chars=[...item.text.toUpperCase()];
+  let bank=shuffle(chars.map((c,i)=>({id:`l${i}_${Math.random().toString(36).slice(2,7)}`,c})));
+  if(bank.map(x=>x.c).join('')===chars.join('')&&bank.length>1)bank=shuffle(bank);
+  return {item,target:chars,bank,placed:Array(chars.length).fill(null),message:'',materialKey:activeMaterialKey(),helpOpen:false,assisted:false,solutionShown:false,completed:false,scored:false};
+}
+function snapshotLetterRound(g){
+  if(!g)return null;
+  return {
+    item:g.item,
+    target:[...(g.target||[])],
+    bank:(g.bank||[]).map(x=>({...x})),
+    placed:(g.placed||[]).map(x=>x?{...x}:null),
+    message:g.message||'',
+    materialKey:g.materialKey,
+    helpOpen:!!g.helpOpen,
+    assisted:!!g.assisted,
+    solutionShown:!!g.solutionShown,
+    completed:!!g.completed,
+    scored:!!g.scored
+  };
+}
 function newLetterRound(){
   const items=activeItems().filter(x=>/^[A-Za-zÄÖÜäöüß]{2,24}$/.test(x.text.trim()));
-  if(!items.length){game.letters=null;return;}
-  const used=game.letterUsed||new Set();let choices=items.filter(x=>!used.has(x.id));if(!choices.length){used.clear();choices=items;}
-  const item=choices[Math.floor(Math.random()*choices.length)];used.add(item.id);game.letterUsed=used;
-  const chars=[...item.text.toUpperCase()];let bank=shuffle(chars.map((c,i)=>({id:`l${i}_${Math.random().toString(36).slice(2,7)}`,c})));if(bank.map(x=>x.c).join('')===chars.join('')&&bank.length>1)bank=shuffle(bank);
-  game.letters={item,target:chars,bank,placed:Array(chars.length).fill(null),message:'',materialKey:activeMaterialKey(),helpOpen:false,assisted:false,solutionShown:false,completed:false,scored:false};
+  if(!items.length){game.letters=null;game.letterHistory=[];game.letterFuture=[];return;}
+  const used=game.letterUsed||new Set();
+  let choices=items.filter(x=>!used.has(`${x.sourceListId||''}:${x.id}`));
+  if(!choices.length){used.clear();choices=items;}
+  const item=choices[Math.floor(Math.random()*choices.length)];
+  used.add(`${item.sourceListId||''}:${item.id}`);
+  game.letterUsed=used;
+  game.letters=makeLetterRound(item);
+}
+function advanceLetterRound(){
+  const current=snapshotLetterRound(game.letters);
+  if(current){
+    game.letterHistory=game.letterHistory||[];
+    game.letterHistory.push(current);
+    if(game.letterHistory.length>80)game.letterHistory.shift();
+  }
+  game.letterFuture=[];
+  newLetterRound();
+  renderLetters();
+}
+function previousLetterRound(){
+  const history=game.letterHistory||[];
+  if(!history.length)return;
+  const current=snapshotLetterRound(game.letters);
+  if(current){
+    game.letterFuture=game.letterFuture||[];
+    game.letterFuture.push(current);
+  }
+  game.letters=history.pop();
+  renderLetters();
+}
+function forwardLetterRound(){
+  const future=game.letterFuture||[];
+  if(!future.length)return advanceLetterRound();
+  const current=snapshotLetterRound(game.letters);
+  if(current){
+    game.letterHistory=game.letterHistory||[];
+    game.letterHistory.push(current);
+  }
+  game.letters=future.pop();
+  renderLetters();
 }
 function letterPlaceCorrectAt(g,slotIndex){
   if(!g||slotIndex<0||slotIndex>=g.target.length)return false;
@@ -1147,7 +1205,7 @@ function letterEvaluate(g){
     g.completed=true;
     if(!g.scored){state.stats.letterScore++;g.scored=true;saveState();}
     g.message=g.assisted?'Richtig – mit Hilfe geschafft!':'Richtig!';
-    if(!g.assisted){const current=g;setTimeout(()=>{if(game.letters===current&&current.completed){newLetterRound();renderLetters();}},800);}
+    if(!g.assisted){const current=g;setTimeout(()=>{if(route==='letters'&&game.letters===current&&current.completed)advanceLetterRound();},800);}
     return true;
   }
   g.completed=false;g.solutionShown=false;g.message='Noch nicht ganz. Du kannst die Buchstaben oben direkt umsortieren.';return false;
@@ -1156,7 +1214,7 @@ function renderLetters(){
   if(!game.letters||game.letters.materialKey!==activeMaterialKey())newLetterRound();
   const g=game.letters;
   const controls=`<div class="score-box">Punkte ${state.stats.letterScore}</div>${g?`<button class="soft-btn" id="letterHelp" aria-expanded="${g.helpOpen?'true':'false'}">Hilfe</button>`:''}<button class="soft-btn" id="letterReset" ${g?'':'disabled'}>Reset</button>`;
-  const primary=g?`<button class="primary-btn game-check-btn" data-game-primary id="letterNext">Weiter →</button>`:'';
+  const primary=g?`<div class="letter-round-nav"><button class="soft-btn letter-prev-btn" id="letterPrev" ${(game.letterHistory||[]).length?'':'disabled'}>← Vorheriges Wort</button><button class="primary-btn game-check-btn" data-game-primary id="letterNext">Weiter →</button></div>`:'';
   $('#view').innerHTML=`${activePlanRun?planRunBar():''}<div class="game-shell">${gameHeader('Buchstaben','Baue das Wort. Wenn es zu schwer wird, kannst du Hilfe geben oder direkt zum nächsten Wort wechseln.',controls,primary)}<div class="game-board">${!g?'<div class="error-banner">Diese Liste enthält keine einzelnen Wörter, die sich für diese Übung eignen.</div>':`<div class="center muted">${g.target.length} Buchstaben</div><div class="letter-targets" id="letterTargets">${g.target.map((_,i)=>{const x=g.placed[i];return `<div class="letter-slot ${x?'filled':''} ${x&&x.c===g.target[i]?'correct-slot':''}" data-slot="${i}" draggable="${x?'true':'false'}">${esc(x?.c||'')}</div>`}).join('')}</div><div class="letter-bank" id="letterBank">${g.bank.map((x,i)=>{const used=g.placed.some(p=>p?.id===x.id);return `<button class="letter-tile ${used?'used':''}" draggable="${used?'false':'true'}" data-letter="${i}" ${used?'disabled':''}>${esc(x.c)}</button>`}).join('')}</div>${g.helpOpen?`<div class="letter-assist card" role="group" aria-label="Hilfen für das Wort"><div><strong>Hilfe anbieten</strong><span class="small muted">So viel Unterstützung wie nötig – ohne die Übung abzubrechen.</span></div><div class="letter-assist-actions"><button class="soft-btn" id="letterHintNext">Nächster Buchstabe</button><button class="soft-btn" id="letterHintSame">Alle gleichen</button><button class="secondary-btn" id="letterShowSolution">Lösung zeigen</button></div></div>`:''}${g.message?`<div class="section center ${g.completed&&!g.solutionShown?'success-banner':g.solutionShown?'info-banner':'error-banner'}">${esc(g.message)}</div>`:''}`}</div></div>`;
   bindPlanBar();bindGameChrome();if(!g)return;
   const put=(bankIndex,slotIndex)=>{const tile=g.bank[bankIndex];if(!tile)return;const oldSlot=g.placed.findIndex(p=>p?.id===tile.id);if(oldSlot>=0)g.placed[oldSlot]=null;g.placed[slotIndex]=tile;g.solutionShown=false;g.completed=false;letterEvaluate(g);renderLetters();};
@@ -1169,7 +1227,8 @@ function renderLetters(){
   });
   $('#letterBank').ondragover=e=>e.preventDefault();$('#letterBank').ondrop=e=>{e.preventDefault();const raw=e.dataTransfer.getData('text/plain');if(raw.startsWith('slot:')){g.placed[+raw.split(':')[1]]=null;g.message='';g.solutionShown=false;g.completed=false;renderLetters();}};
   $('#letterReset').onclick=()=>{g.placed=Array(g.target.length).fill(null);g.message='';g.assisted=false;g.solutionShown=false;g.completed=false;renderLetters();};
-  $('#letterNext').onclick=()=>{newLetterRound();renderLetters();};
+  $('#letterPrev').onclick=previousLetterRound;
+  $('#letterNext').onclick=forwardLetterRound;
   $('#letterHelp').onclick=()=>{g.helpOpen=!g.helpOpen;renderLetters();};
   $('#letterHintNext')?.addEventListener('click',()=>{const idx=letterFirstUnresolved(g);if(idx<0){letterEvaluate(g);renderLetters();return;}g.assisted=true;letterPlaceCorrectAt(g,idx);if(!letterEvaluate(g))g.message=`Hinweis: Der nächste Buchstabe ist „${g.target[idx]}“.`;renderLetters();});
   $('#letterHintSame')?.addEventListener('click',()=>{const idx=letterFirstUnresolved(g);if(idx<0){letterEvaluate(g);renderLetters();return;}const ch=g.target[idx];g.assisted=true;let count=0;g.target.forEach((c,i)=>{if(c===ch&&g.placed[i]?.c!==ch&&letterPlaceCorrectAt(g,i))count++;});if(!letterEvaluate(g))g.message=count>1?`Hinweis: Alle „${ch}“ wurden eingesetzt.`:`Hinweis: „${ch}“ wurde eingesetzt.`;renderLetters();});
@@ -1836,7 +1895,7 @@ function contextualHelp(){
     games:['Spiele','Wähle einfach ein Spiel. Wenn noch keine passende Liste gewählt ist, fragt WortZeit direkt beim Öffnen danach – du musst nicht erst zurück in die Listenverwaltung. Im Spiel kannst du die Liste oben jederzeit wieder wechseln. ? erklärt das Spiel, × oder Escape beendet es.'],
     patients:['Patienten','Hier kannst du einen einfachen Anzeigenamen anlegen und passende Listen zuordnen. So findest du das vorbereitete Material später schneller wieder.'],
     plans:['Therapiepläne','Ein Therapieplan verbindet mehrere Übungen in einer festen Reihenfolge. Du kannst ihn selbst starten oder als .speechpack-Datei für den Patientenplayer weitergeben. Benötigte Listen und vorhandene Aufnahmen der verwendeten Einträge werden in das Therapiepaket übernommen. Mit den Pfeilen änderst du die Reihenfolge der Schritte. Das .speechpack ist nur die vorbereitete Patientenübung – dein kompletter WortZeit-Arbeitsstand wird separat unter „Daten & Geräte“ als Datenpaket gesichert.'],
-    letters:['Buchstaben','Baue das gesuchte Wort aus den Buchstaben unten. Du kannst einen Buchstaben antippen oder direkt auf eine beliebige freie Stelle ziehen. Bereits gesetzte Buchstaben lassen sich oben per Drag & Drop tauschen. Mit „Hilfe“ kannst du wahlweise den nächsten Buchstaben einsetzen, alle gleichen Buchstaben zeigen oder die vollständige Lösung anzeigen. „Weiter“ überspringt ein zu schweres Wort jederzeit, ohne dass jemand feststeckt. „Reset“ leert nur die aktuelle Lösung.<br><br><strong>Wofür gedacht:</strong> Wörter bewusst Buchstabe für Buchstabe zusammensetzen – mit genau so viel Unterstützung, wie gerade hilfreich ist.'],
+    letters:['Buchstaben','Baue das gesuchte Wort aus den Buchstaben unten. Du kannst einen Buchstaben antippen oder direkt auf eine beliebige freie Stelle ziehen. Bereits gesetzte Buchstaben lassen sich oben per Drag & Drop tauschen. Mit „Hilfe“ kannst du wahlweise den nächsten Buchstaben einsetzen, alle gleichen Buchstaben zeigen oder die vollständige Lösung anzeigen. „Weiter“ oder die Leertaste nimmt das nächste Wort. Wenn das versehentlich passiert, bringt „← Vorheriges Wort“ das vorherige Wort mit seinem letzten Stand zurück. „Reset“ leert nur die aktuelle Lösung.<br><br><strong>Wofür gedacht:</strong> Wörter bewusst Buchstabe für Buchstabe zusammensetzen – mit genau so viel Unterstützung, wie gerade hilfreich ist.'],
     memory:['Memory','Zuerst wählst du Memory-Art, 8/12/16/24 Karten und 1 oder 2 Spieler. Danach startet das Spielfeld mit möglichst großen quadratischen Karten. Bei Audio-Memory wird das Wort mit der bereits in der Aufnahmebank gespeicherten Aufnahme gepaart und beim Umdrehen abgespielt. Mit „Paar halten AN“ bleiben zwei Karten offen, bis du „Weiter“ drückst.<br><br><strong>Wofür gedacht:</strong> Begriffe, Bilder oder gehörte Wörter miteinander in Beziehung setzen und wiedererkennen.'],
     sorting:['Sortieren','Links bleiben die Hinweise. Rechts ist der Arbeitsbereich: oben die Zielkategorien, direkt darunter die verfügbaren Antworten. Tippe eine Antwort an und danach das passende Feld – oder ziehe sie direkt dorthin. Bereits gesetzte Antworten kannst du wieder verschieben. Der große hervorgehobene „Prüfen“-Knopf oben ist die Hauptaktion. Über „Übung“ kannst du ein bestimmtes Rätsel direkt auswählen; mit „← Aufgabe“ springst du zur vorherigen Aufgabe zurück. Reset leert nur die aktuelle Lösung.<br><br><strong>Wofür gedacht:</strong> Hinweise nacheinander aufnehmen, Zusammenhänge herstellen und Informationen passend zuordnen.'],
     story:['Bildergeschichte','Bringe die vier Bilder in die richtige Reihenfolge. Du kannst zwei Bilder antippen oder sie ziehen. Sobald die Reihenfolge stimmt, erkennt WortZeit das automatisch. Die kurze „Richtig“-Meldung blendet sich nach wenigen Sekunden wieder aus, damit die Bilder frei sichtbar bleiben. Die Geschichte selbst bleibt stehen, bis du den großen „Weiter“-Knopf drückst. Mit „← Aufgabe“ kannst du auch zur vorherigen Bildergeschichte zurückspringen und sie noch einmal besprechen.<br><br><strong>Wofür gedacht:</strong> Eine Handlung zeitlich ordnen und anschließend in eigenen Worten beschreiben oder erzählen.'],
@@ -1857,7 +1916,7 @@ function clickDefaultAction(){
 }
 
 // ---------- Service worker ----------
-if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.8.11',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
+if('serviceWorker' in navigator && location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js?v=0.8.12',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{});}
 
 // ---------- Global events/init ----------
 window.__WZ_BOOT_PHASE='ui-bind';

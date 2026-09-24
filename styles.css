@@ -1012,7 +1012,7 @@ body.session-mode .session-word:not(.multi){white-space:nowrap!important;max-wid
 @media(max-width:700px){.duplicate-row{grid-template-columns:30px minmax(0,1fr)}.duplicate-row>span:last-child{grid-column:2}.duplicate-actions{align-items:stretch;flex-direction:column}.duplicate-actions>span{margin:0}.duplicate-actions button{width:100%}}
 
 
-/* v0.8.11 layout and readability refinements */
+/* v0.8.12 layout and readability refinements */
 .list-browser{grid-template-columns:minmax(340px,430px) minmax(0,1fr)!important;align-items:start!important}
 .list-tree{max-height:calc(100vh - 205px)!important;padding:14px!important;scrollbar-gutter:stable both-edges}
 #listTree.section{margin-top:10px}
@@ -1030,7 +1030,7 @@ body.game-syllables .syllable-result{display:flex!important;align-items:center!i
 body.game-syllables .hex-frame .hex-syllable{display:flex!important;align-items:center!important;justify-content:center!important;padding:6px 10px!important;text-align:center!important}
 
 
-/* v0.8.11 syllable board widening */
+/* v0.8.12 syllable board widening */
 body.game-syllables .hex-wrap{padding:clamp(26px,4vh,48px) clamp(96px,13vw,190px) clamp(20px,3vh,34px)!important;}
 body.game-syllables .hex-frame{width:min(74vw,720px)!important;aspect-ratio:1.42 / 1!important;max-width:100%!important;}
 body.game-syllables .hex-frame .hex-shape{clip-path:polygon(18% 6%,82% 6%,100% 50%,82% 94%,18% 94%,0 50%)!important;}
@@ -1051,7 +1051,7 @@ body.game-syllables .syllable-piece{min-width:clamp(86px,10vw,150px)!important;p
 }
 
 
-/* v0.8.11 therapy-flow polish */
+/* v0.8.12 therapy-flow polish */
 @keyframes storySuccessFade{0%,62%{opacity:1;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-50%) scale(.985)}}
 .game-floating-message.story-success-notice{animation:storySuccessFade 2.65s ease forwards;pointer-events:none}
 body.game-letters .letter-assist{width:min(900px,94%);margin:clamp(16px,3vh,28px) auto 0;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;background:color-mix(in srgb,var(--surface) 88%,var(--accent-2))}
@@ -1063,7 +1063,7 @@ body.game-letters .info-banner{background:color-mix(in srgb,var(--accent) 10%,va
 @media(max-width:720px){body.game-letters .letter-assist{align-items:stretch}body.game-letters .letter-assist-actions{display:grid;grid-template-columns:1fr;flex:1 1 100%}body.game-letters .letter-assist-actions button{width:100%}}
 
 
-/* v0.8.11 – prominent syllable controls and split-sentence choice stories */
+/* v0.8.12 – prominent syllable controls and split-sentence choice stories */
 body.game-syllables .syllable-control-btn{
   min-height:56px;
   min-width:132px;
@@ -1093,7 +1093,7 @@ body.game-syllables .syllable-control-btn:active{transform:translateY(1px)}
 }
 
 
-/* v0.8.11 – simple authoring rule for Auswahlgeschichten */
+/* v0.8.12 – simple authoring rule for Auswahlgeschichten */
 .choice-story-rule{border:2px solid color-mix(in srgb,var(--accent) 38%,var(--line));background:color-mix(in srgb,var(--accent-2) 72%,var(--surface));border-radius:16px;padding:14px 16px;display:grid;gap:8px;line-height:1.45;font-size:16px}
 .choice-story-rule>strong{font-size:18px;color:var(--ink)}
 .choice-story-rule small{font-size:14px;color:var(--muted);line-height:1.45}
@@ -1101,7 +1101,7 @@ body.game-syllables .syllable-control-btn:active{transform:translateY(1px)}
 .choice-story-example span:first-child{font-weight:900;margin-bottom:3px}
 
 
-/* v0.8.11 — simple structured authoring for Auswahlgeschichten */
+/* v0.8.12 — simple structured authoring for Auswahlgeschichten */
 .new-list-type-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 .new-list-type{border:1px solid var(--line);background:var(--surface-2);border-radius:14px;padding:12px 14px;display:grid;gap:4px;cursor:pointer;min-height:72px}
 .new-list-type input{position:absolute;opacity:0;pointer-events:none}
@@ -1122,4 +1122,57 @@ body.game-syllables .syllable-control-btn:active{transform:translateY(1px)}
   .choice-story-task-nav{grid-template-columns:1fr 1fr}
   .choice-story-task-nav select{grid-column:1/-1;grid-row:1}
   .choice-story-answer-grid{grid-template-columns:1fr}
+}
+
+
+/* v0.8.12 — safer game chrome and reversible Buchstaben flow */
+body.game-mode .game-controls{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:flex-end!important;
+  gap:clamp(12px,1.2vw,18px)!important;
+  min-width:0;
+}
+body.game-mode .game-action-controls,
+body.game-mode .game-nav-controls{
+  display:flex;
+  align-items:center;
+  gap:clamp(7px,.75vw,10px);
+  min-width:0;
+}
+body.game-mode .game-action-controls{justify-content:flex-end;flex-wrap:wrap}
+body.game-mode .game-nav-controls{
+  justify-content:flex-end;
+  flex:0 0 auto;
+  padding-left:clamp(10px,1vw,16px);
+  border-left:1px solid color-mix(in srgb,var(--line) 82%,transparent);
+}
+body.game-mode .game-nav-controls .game-material-btn{order:1}
+body.game-mode .game-nav-controls .game-help-btn{order:2}
+body.game-mode .game-nav-controls .game-exit-btn{order:3}
+
+/* Reset/Mischen are task controls: large, stable and clearly separated from list/help/exit. */
+body.game-syllables .syllable-control-btn{
+  min-height:64px!important;
+  height:64px!important;
+  min-width:156px!important;
+  padding:0 26px!important;
+  font-size:20px!important;
+  border-radius:17px!important;
+}
+
+body.game-letters .letter-round-nav{display:flex;align-items:center;gap:10px}
+body.game-letters .letter-prev-btn{min-height:54px!important;height:54px!important;min-width:166px;font-weight:850}
+body.game-letters .letter-prev-btn:disabled{opacity:.38;cursor:default}
+
+@media(max-width:1200px){
+  body.game-mode .game-controls{flex-wrap:wrap!important;gap:7px!important}
+  body.game-mode .game-nav-controls{margin-left:auto}
+}
+@media(max-width:760px){
+  body.game-mode .game-controls{gap:5px!important}
+  body.game-mode .game-nav-controls{padding-left:7px;gap:5px}
+  body.game-syllables .syllable-control-btn{min-width:118px!important;min-height:54px!important;height:54px!important;padding:0 14px!important;font-size:17px!important}
+  body.game-letters .letter-round-nav{gap:6px}
+  body.game-letters .letter-prev-btn{min-width:120px;font-size:13px;padding:0 10px}
 }
